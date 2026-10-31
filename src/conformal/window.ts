@@ -39,6 +39,17 @@ export class ScoreHistory {
   }
 
   /**
+   * The threshold the engine actually issues: clipped to +/- the largest |score| seen
+   * (which also makes +/-inf finite). Methods compare feedback against this value so
+   * their adaptation agrees with the reported coverage. Unchanged before any score.
+   */
+  cap(q: number): number {
+    if (this.all.length === 0) return q;
+    if (Number.isNaN(q)) return this.maxAbs;
+    return Math.max(-this.maxAbs, Math.min(this.maxAbs, q));
+  }
+
+  /**
    * Conformal quantile of the window at level `beta`: the ceil((n + 1) beta)-th smallest
    * score, `+inf` when that rank exceeds n and `-inf` when beta <= 0.
    */

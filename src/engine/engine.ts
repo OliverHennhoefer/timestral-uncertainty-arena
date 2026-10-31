@@ -408,7 +408,7 @@ export function rankRows(rows: MetricsRow[], alpha: number, by: RankBy, toleranc
       case "rolling_gap":
         return [Math.abs(r.rollingCoverage - target), r.rollingWidth];
       case "validity_then_width":
-        return r.gap <= tolerance ? [0, r.meanWidth] : [1, r.gap];
+        return r.valid ? [0, r.meanWidth] : [1, r.gap];
     }
   };
   const sorted = [...ext].sort((a, b) => {

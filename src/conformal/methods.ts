@@ -49,7 +49,7 @@ class ACI implements OnlineMethod {
     this.alphaT = alpha;
   }
   predict(key: number): number {
-    const q = this.h.conformalQuantile(1 - this.alphaT);
+    const q = this.h.cap(this.h.conformalQuantile(1 - this.alphaT));
     this.pending.set(key, q);
     return q;
   }
@@ -84,11 +84,11 @@ class DtACI implements OnlineMethod {
     this.eta = Math.sqrt(3 / interval) * Math.sqrt((Math.log(k * interval) + 2) / ((1 - alpha) ** 2 * alpha ** 3));
   }
   predict(key: number): number {
-    const qs = this.alphas.map((a) => this.h.conformalQuantile(1 - a));
+    const qs = this.alphas.map((a) => this.h.cap(this.h.conformalQuantile(1 - a)));
     this.pending.set(key, qs);
     let a = 0;
     for (let i = 0; i < this.alphas.length; i++) a += this.weights[i] * this.alphas[i];
-    return this.h.conformalQuantile(1 - a);
+    return this.h.cap(this.h.conformalQuantile(1 - a));
   }
   update(key: number, s: number): void {
     const qs = this.pending.get(key);
@@ -181,7 +181,7 @@ class QuantileTracker implements OnlineMethod {
     return this.q;
   }
   predict(key: number): number {
-    const q = this.base();
+    const q = this.h.cap(this.base());
     this.pending.set(key, q);
     return q;
   }
@@ -219,7 +219,7 @@ class ConformalPID extends QuantileTracker {
       arg = Math.max(-lim, Math.min(lim, arg));
       integral = this.ki * scale * Math.tan(arg);
     }
-    const out = q + integral;
+    const out = this.h.cap(q + integral);
     this.pending.set(key, out);
     return out;
   }

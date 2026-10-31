@@ -103,6 +103,27 @@ describe("engine", () => {
     expect(rankRows(rows, 0.1, "validity_then_width", 0.06).map((r) => r.id)).toEqual(["a", "c", "b"]);
   });
 
+  it("validity-first ranking treats over-coverage as valid", () => {
+    const rows = [
+      { id: "under", n: 10, coverage: 0.85, rollingCoverage: 0.85, meanWidth: 1, rollingWidth: 1, intervalScore: 1 },
+      { id: "over", n: 10, coverage: 1, rollingCoverage: 1, meanWidth: 5, rollingWidth: 5, intervalScore: 5 },
+    ];
+    expect(rankRows(rows, 0.1, "validity_then_width").map((r) => r.id)).toEqual(["over", "under"]);
+  });
+
+  it("methods learn from the threshold actually issued (capped)", () => {
+    const h = new ScoreHistory(100);
+    h.push(1);
+    expect(h.cap(Infinity)).toBe(1);
+    // ACI at a tiny alpha issues +inf, capped to 1; a score of 10 must count as a miss.
+    const aci = METHODS.find((m) => m.id === "aci")!.create(h, 0.01, { gamma: 0.5 });
+    expect(aci.predict(0)).toBe(1);
+    aci.update(0, 10);
+    h.push(10);
+    // After a miss alpha_t drops below 0, so the next threshold is the cap (largest score).
+    expect(aci.predict(1)).toBe(10);
+  });
+
   it("interpolates quantiles between knots", () => {
     const q = Float32Array.from(TIMESTRAL_LEVELS);
     expect(quantileAt(q, 0, TIMESTRAL_LEVELS, 0.025)).toBeCloseTo(0.025, 6);

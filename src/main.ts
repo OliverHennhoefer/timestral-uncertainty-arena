@@ -28,6 +28,8 @@ let focusId = "aci";
 let showAll = true;
 
 let inFlight = false;
+/** Origin whose forecast last failed; not retried until the series or backend changes. */
+let failedOrigin: { origin: number; revision: number; backend: Backend } | null = null;
 let lastLatency = 0;
 let playing = false;
 let playTimer: number | null = null;
@@ -76,6 +78,7 @@ async function pump() {
   if (inFlight || backfilling || !backend.ready) return;
   const t = engine.series.length - 1;
   if (t < 0 || t <= engine.latestOrigin()) return;
+  if (failedOrigin && failedOrigin.origin === t && failedOrigin.revision === engine.revision && failedOrigin.backend === backend) return;
   inFlight = true;
   setPill();
   const rev = engine.revision;
@@ -87,8 +90,10 @@ async function pump() {
     if (b === backend && engine.revision === rev && engine.series.length > t) {
       engine.addForecast(t, res.quantiles, res.horizon, res.levels);
     }
+    failedOrigin = null;
   } catch (e) {
-    toast(`Forecast failed: ${e instanceof Error ? e.message : e}`);
+    failedOrigin = { origin: t, revision: rev, backend: b };
+    toast(`Forecast failed: ${e instanceof Error ? e.message : e}. Draw a new point or switch backend to retry.`);
     playing && togglePlay();
   } finally {
     inFlight = false;
@@ -110,11 +115,17 @@ async function backfill() {
     for (let o = 0; o < n; o++) {
       if (engine.revision !== rev || b !== backend) break;
       const res = await b.forecast({ context: Float64Array.from(engine.series.slice(0, o + 1)), horizon, symmetric, clip, maxContext });
+      // The series, backend or forecast settings may have changed while we awaited.
+      if (engine.revision !== rev || b !== backend) break;
       engine.storeForecast(o, res.quantiles, res.horizon, res.levels);
       if (o % 10 === 0 || o === n - 1) {
         $("backfill-progress").textContent = `${o + 1}/${n} origins`;
         await new Promise((r) => setTimeout(r));
       }
+    }
+    if (engine.revision !== rev || b !== backend) {
+      $("backfill-progress").textContent = "recompute cancelled (series or model changed)";
+      return;
     }
     engine.replay();
     $("backfill-progress").textContent = `recomputed ${n} origins in ${((performance.now() - t0) / 1000).toFixed(1)} s`;
