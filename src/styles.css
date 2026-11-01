@@ -97,6 +97,9 @@ h3 .muted { font-weight: 400; }
   -webkit-backdrop-filter: saturate(180%) blur(20px);
 }
 .brand { white-space: nowrap; }
+.brand { display: flex; align-items: baseline; gap: 14px; }
+.nav-link { color: var(--accent); text-decoration: none; font-size: 13px; }
+.nav-link:hover { text-decoration: underline; }
 .toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: nowrap; flex: 1; justify-content: center; min-width: 0; }
 .toolbar select { max-width: 200px; }
 #backfill-progress { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 180px; font-size: 12px; }

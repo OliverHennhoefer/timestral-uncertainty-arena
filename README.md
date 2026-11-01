@@ -11,6 +11,8 @@ Draw a time series with the mouse. [Timestral](https://huggingface.co/collection
 
 </details>
 
+A separate leaderboard page (`leaderboard.html`, linked from the app's top bar) ranks every method on every bundled dataset, with findings and a CSV download. It is generated offline by `npm run benchmark`; see [benchmarks/README.md](benchmarks/README.md).
+
 The demo uses the built-in naive baseline. Pick a Timestral checkpoint (5M to 209M) in the settings panel to forecast with the real model.
 
 ## Run locally
