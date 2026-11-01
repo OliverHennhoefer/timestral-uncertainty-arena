@@ -26,6 +26,8 @@ let clip = true;
 let rankBy: RankBy = "interval_score";
 let focusId = "aci";
 let showAll = true;
+/** Off: a stroke only moves forward in time; drawing left of the end does nothing. */
+let allowRewind = false;
 
 let inFlight = false;
 /** Origin whose forecast last failed; not retried until the series or backend changes. */
@@ -171,6 +173,7 @@ function drawTo(step: number, value: number) {
   const n = engine.series.length;
   if (i < n) {
     if (i === n - 1) return; // same column: keep the first value
+    if (!allowRewind) return; // forward-only: never overwrite recorded history
     engine.truncate(i);
     engine.append(round(value));
   } else {
@@ -192,7 +195,7 @@ canvas.addEventListener("pointerdown", (e) => {
   drawing = true;
   canvas.setPointerCapture(e.pointerId);
   const step = stepAt(e.clientX);
-  if (engine.series.length && step - seriesOffset < engine.series.length - 1) engine.truncate(Math.max(0, step - seriesOffset));
+  if (allowRewind && engine.series.length && step - seriesOffset < engine.series.length - 1) engine.truncate(Math.max(0, step - seriesOffset));
   drawTo(step, valueAt(e.clientY));
 });
 canvas.addEventListener("pointermove", (e) => {
@@ -712,19 +715,73 @@ function bindControls() {
     showAll = (e.target as HTMLInputElement).checked;
     requestRender();
   });
+  const rewind = $<HTMLInputElement>("allow-rewind");
+  rewind.checked = allowRewind;
+  rewind.addEventListener("change", () => {
+    allowRewind = rewind.checked;
+    $("draw-hint").textContent = drawHint();
+  });
+  $("draw-hint").textContent = drawHint();
   $<HTMLSelectElement>("rank-by").addEventListener("change", (e) => {
     rankBy = (e.target as HTMLSelectElement).value as RankBy;
     renderTable();
   });
-  window.addEventListener("resize", requestRender);
+  window.addEventListener("resize", () => followEnd(0.8, 0.7));
   window.matchMedia?.("(prefers-color-scheme: dark)").addEventListener?.("change", () => {
     renderLegend();
     requestRender();
   });
 }
 
+// ---------------------------------------------------------------------------------------
+// Configuration side panel
+
+function drawHint(): string {
+  return allowRewind
+    ? "Draw a curve from left to right. Every new step is forecast; drawing back to the left rewinds."
+    : "Draw a curve from left to right. Every new step is forecast; strokes only move forward in time.";
+}
+
+function setPanel(open: boolean, persist = true) {
+  $("shell").classList.toggle("collapsed", !open);
+  if (persist) {
+    try {
+      localStorage.setItem("ctimestral-panel", open ? "open" : "closed");
+    } catch {
+      // ignore
+    }
+  }
+  // Canvases resize with the layout; redraw during and after the slide.
+  requestRender();
+  // The plot width changes with the panel; keep the series end and forecast in view.
+  window.setTimeout(() => followEnd(0.8, 0.7), 220);
+}
+
+function initPanel() {
+  let stored: string | null = null;
+  try {
+    stored = localStorage.getItem("ctimestral-panel");
+  } catch {
+    // ignore
+  }
+  const narrow = window.matchMedia("(max-width: 900px)").matches;
+  setPanel(narrow ? false : stored !== "closed", false);
+  $("btn-panel-open").addEventListener("click", () => setPanel(true));
+  $("btn-panel-close").addEventListener("click", () => setPanel(false));
+  $("scrim").addEventListener("click", () => setPanel(false));
+  window.addEventListener("keydown", (e) => {
+    const t = e.target as HTMLElement;
+    if (e.key !== "[" || e.metaKey || e.ctrlKey || e.altKey || ["INPUT", "SELECT", "TEXTAREA"].includes(t.tagName)) return;
+    setPanel($("shell").classList.contains("collapsed"));
+  });
+}
+
+initPanel();
 bindControls();
 renderMethods();
 renderLegend();
 setPill();
 requestRender();
+
+// Dev-only handle for automated UI checks.
+if (import.meta.env.DEV) (window as unknown as { __ctimestral: unknown }).__ctimestral = { engine };
