@@ -4,8 +4,11 @@ import type { Uncertainty } from "./engine/bootstrap";
 import { Engine, NATIVE_COLOR, NATIVE_ID, type RankBy, type ScoreType, type Settings, defaultSettings, rankRows } from "./engine/engine";
 import { type Backend, BrowserBackend, NaiveBackend, ServerBackend } from "./model/backends";
 import { MODELS } from "./model/registry";
-import { PRESETS } from "./synthetic";
+import { DATASETS } from "./datasets";
+import { PRESETS as SYNTHETIC } from "./synthetic";
 import { FONT, cssVar, fitCanvas, lineChart, withAlpha } from "./ui/plot";
+
+const PRESETS = [...SYNTHETIC, ...DATASETS];
 
 // ---------------------------------------------------------------------------------------
 // State
@@ -769,7 +772,10 @@ async function connectServer() {
 
 function bindControls() {
   const preset = $<HTMLSelectElement>("preset");
-  preset.innerHTML = PRESETS.map((p) => `<option value="${p.id}">${p.label}</option>`).join("");
+  const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+  const option = (p: (typeof PRESETS)[number]) => `<option value="${p.id}"${p.source ? ` title="${esc(p.source)}"` : ""}>${esc(p.label)}</option>`;
+  const groups = [...new Set(PRESETS.map((p) => p.group ?? "Synthetic"))];
+  preset.innerHTML = groups.map((g) => `<optgroup label="${g}">${PRESETS.filter((p) => (p.group ?? "Synthetic") === g).map(option).join("")}</optgroup>`).join("");
   $("btn-play").addEventListener("click", togglePlay);
   preset.addEventListener("change", () => {
     if (playing) togglePlay();
