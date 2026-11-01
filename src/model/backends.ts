@@ -180,6 +180,14 @@ export class ServerBackend implements Backend {
  * Model-free baseline: median = last value, quantiles = last value + empirical quantiles of
  * the observed k-step changes `y[t] - y[t-k]` (falling back to a Gaussian random walk).
  */
+/** Points used for the naive baseline's local drift, and its per-step damping factor. */
+export const NAIVE_DRIFT_WINDOW = 8;
+export const NAIVE_DAMPING = 0.9;
+
+/**
+ * Naive baseline (no model): damped local drift for the median, empirical k-step changes
+ * for the spread. Lets you try the app without downloading weights.
+ */
 export class NaiveBackend implements Backend {
   readonly kind = "naive" as const;
   readonly label = "Naive baseline (no model)";
@@ -196,25 +204,34 @@ export class NaiveBackend implements Backend {
     let sd1 = 0;
     for (let t = 1; t < n; t++) sd1 += (y[t] - y[t - 1]) ** 2;
     sd1 = n > 1 ? Math.sqrt(sd1 / (n - 1)) : 1;
+    // Local drift: mean step over the last few points, extrapolated with damping so a
+    // ramp is continued but a turning curve is not shot off to infinity.
+    const W = Math.min(n - 1, NAIVE_DRIFT_WINDOW);
+    const slope = W > 0 ? (y[n - 1] - y[n - 1 - W]) / W : 0;
+    let damp = 0;
     for (let k = 1; k <= req.horizon; k++) {
+      damp += NAIVE_DAMPING ** k;
+      const center = last + slope * damp;
       const diffs: number[] = [];
       for (let t = k; t < n; t++) diffs.push(y[t] - y[t - k]);
       diffs.sort((a, b) => a - b);
+      // The spread comes from the k-step changes seen so far, recentred on the drift path.
+      const med = diffs.length ? diffs[Math.floor((diffs.length - 1) / 2)] : 0;
       for (let i = 0; i < Q; i++) {
         let v: number;
         if (diffs.length >= 20) {
           const pos = levels[i] * (diffs.length - 1);
           const lo = Math.floor(pos);
           const w = pos - lo;
-          v = diffs[lo] * (1 - w) + diffs[Math.min(lo + 1, diffs.length - 1)] * w;
+          v = diffs[lo] * (1 - w) + diffs[Math.min(lo + 1, diffs.length - 1)] * w - med;
         } else {
           v = sd1 * Math.sqrt(k) * normInv(levels[i]);
         }
-        q[(k - 1) * Q + i] = last + v;
+        q[(k - 1) * Q + i] = center + v;
       }
-      // The median is the last value.
+      // Pin the median exactly on the drift path.
       const mi = levels.indexOf(0.5);
-      const shift = last - q[(k - 1) * Q + mi];
+      const shift = center - q[(k - 1) * Q + mi];
       for (let i = 0; i < Q; i++) q[(k - 1) * Q + i] += shift;
     }
     return { quantiles: q, levels, horizon: req.horizon, ms: performance.now() - t0 };

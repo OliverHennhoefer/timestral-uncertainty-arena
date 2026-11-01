@@ -14,7 +14,10 @@ import { METHODS, type MethodSpec, type OnlineMethod, defaultParams } from "../c
 import { ScoreHistory } from "../conformal/window";
 import { type ArrivalSeries, type Uncertainty, blockBootstrap, indistinguishable } from "./bootstrap";
 
-export type ScoreType = "cqr" | "abs" | "scaled";
+export type ScoreType = "cqr" | "cqr_asym" | "abs" | "scaled";
+
+/** Asymmetric scores calibrate the lower and upper bound separately, each at alpha / 2. */
+export const isAsymmetric = (t: ScoreType) => t === "cqr_asym";
 
 export interface Settings {
   alpha: number;
@@ -57,6 +60,8 @@ export interface StoredForecast {
   hi: Float64Array;
   /** Threshold issued per method id, per lead (index k - 1); NaN where not issued. */
   thresholds: Map<string, Float64Array>;
+  /** Upper-side thresholds for asymmetric scores (`thresholds` then holds the lower side). */
+  thresholdsUp: Map<string, Float64Array>;
   /** Whether lead k - 1 was past warm-up when issued (counts toward metrics). */
   evaluated: Uint8Array;
 }
@@ -105,6 +110,9 @@ export class Engine {
   settings: Settings;
   private histories: ScoreHistory[] = [];
   private methods: Map<string, OnlineMethod>[] = [];
+  /** Upper-side histories and methods, used only by asymmetric scores. */
+  private historiesUp: ScoreHistory[] = [];
+  private methodsUp: Map<string, OnlineMethod>[] = [];
   metrics = new Map<string, MethodMetrics>();
   traceT: number[] = [];
   processedUpTo = -1;
@@ -127,6 +135,8 @@ export class Engine {
   private reset(): void {
     this.histories = [];
     this.methods = [];
+    this.historiesUp = [];
+    this.methodsUp = [];
     this.metrics = new Map();
     this.traceT = [];
     this.processedUpTo = -1;
@@ -143,15 +153,20 @@ export class Engine {
     };
   }
 
-  private lead(k: number): { history: ScoreHistory; methods: Map<string, OnlineMethod> } {
-    while (this.histories.length < k) {
+  /** Per-lead state; `up` selects the upper side of an asymmetric score. */
+  private lead(k: number, up = false): { history: ScoreHistory; methods: Map<string, OnlineMethod> } {
+    const histories = up ? this.historiesUp : this.histories;
+    const methods = up ? this.methodsUp : this.methods;
+    // Each side of an asymmetric score targets alpha / 2, so the two-sided interval targets 1 - alpha.
+    const a = isAsymmetric(this.settings.scoreType) ? this.settings.alpha / 2 : this.settings.alpha;
+    while (histories.length < k) {
       const h = new ScoreHistory(this.settings.window);
-      this.histories.push(h);
+      histories.push(h);
       const m = new Map<string, OnlineMethod>();
-      for (const spec of this.activeSpecs) m.set(spec.id, spec.create(h, this.settings.alpha, this.settings.params[spec.id] ?? defaultParams(spec)));
-      this.methods.push(m);
+      for (const spec of this.activeSpecs) m.set(spec.id, spec.create(h, a, this.settings.params[spec.id] ?? defaultParams(spec)));
+      methods.push(m);
     }
-    return { history: this.histories[k - 1], methods: this.methods[k - 1] };
+    return { history: histories[k - 1], methods: methods[k - 1] };
   }
 
   /** Lead-k score history (for diagnostics and tests). */
@@ -211,7 +226,7 @@ export class Engine {
     const f: StoredForecast = {
       origin, horizon, levels, quantiles,
       median: new Float64Array(horizon), lo: new Float64Array(horizon), hi: new Float64Array(horizon),
-      thresholds: new Map(), evaluated: new Uint8Array(horizon),
+      thresholds: new Map(), thresholdsUp: new Map(), evaluated: new Uint8Array(horizon),
     };
     this.forecasts.set(origin, f);
     this.issue(f);
@@ -223,7 +238,7 @@ export class Engine {
     this.forecasts.set(origin, {
       origin, horizon, levels, quantiles,
       median: new Float64Array(horizon), lo: new Float64Array(horizon), hi: new Float64Array(horizon),
-      thresholds: new Map(), evaluated: new Uint8Array(horizon),
+      thresholds: new Map(), thresholdsUp: new Map(), evaluated: new Uint8Array(horizon),
     });
   }
 
@@ -270,33 +285,51 @@ export class Engine {
   private issue(f: StoredForecast): void {
     this.derive(f);
     f.thresholds = new Map();
+    f.thresholdsUp = new Map();
     const H = Math.min(f.horizon, this.settings.evalLeads);
-    for (const spec of this.activeSpecs) f.thresholds.set(spec.id, new Float64Array(f.horizon).fill(NaN));
+    const sides = isAsymmetric(this.settings.scoreType) ? [false, true] : [false];
+    for (const spec of this.activeSpecs) {
+      f.thresholds.set(spec.id, new Float64Array(f.horizon).fill(NaN));
+      if (sides.length > 1) f.thresholdsUp.set(spec.id, new Float64Array(f.horizon).fill(NaN));
+    }
     for (let k = 1; k <= H; k++) {
-      const { history, methods } = this.lead(k);
-      f.evaluated[k - 1] = history.count >= this.settings.warmup ? 1 : 0;
-      const cap = history.maxAbsScore;
-      for (const [id, m] of methods) {
-        let q = m.predict(f.origin);
-        // Thresholds beyond the largest score seen (including +/-inf) are capped there.
-        if (history.count === 0) q = NaN;
-        else if (Number.isNaN(q)) q = cap;
-        else q = Math.max(-cap, Math.min(cap, q));
-        f.thresholds.get(id)![k - 1] = q;
+      for (const up of sides) {
+        const { history, methods } = this.lead(k, up);
+        if (!up) f.evaluated[k - 1] = history.count >= this.settings.warmup ? 1 : 0;
+        const cap = history.maxAbsScore;
+        const out = up ? f.thresholdsUp : f.thresholds;
+        for (const [id, m] of methods) {
+          let q = m.predict(f.origin);
+          // Thresholds beyond the largest score seen (including +/-inf) are capped there.
+          if (history.count === 0) q = NaN;
+          else if (Number.isNaN(q)) q = cap;
+          else q = Math.max(-cap, Math.min(cap, q));
+          out.get(id)![k - 1] = q;
+        }
       }
     }
   }
 
-  /** Score of truth `y` at lead index `j` of forecast `f`. */
+  /**
+   * Score of truth `y` at lead index `j` of forecast `f`. For an asymmetric score this is the
+   * lower-side score (how far `y` fell below the lower bound); `scoreUp` gives the upper side.
+   */
   score(f: StoredForecast, j: number, y: number): number {
     switch (this.settings.scoreType) {
       case "cqr":
         return Math.max(f.lo[j] - y, y - f.hi[j]);
+      case "cqr_asym":
+        return f.lo[j] - y;
       case "abs":
         return Math.abs(y - f.median[j]);
       case "scaled":
         return Math.abs(y - f.median[j]) / Math.max((f.hi[j] - f.lo[j]) / 2, 1e-9);
     }
+  }
+
+  /** Upper-side score of an asymmetric score: how far `y` rose above the upper bound. */
+  scoreUp(f: StoredForecast, j: number, y: number): number {
+    return y - f.hi[j];
   }
 
   /** Interval of method `id` at lead index `j` (threshold `q`), or the native interval. */
@@ -307,6 +340,11 @@ export class Engine {
     switch (this.settings.scoreType) {
       case "cqr":
         return [f.lo[j] - q, f.hi[j] + q];
+      case "cqr_asym": {
+        const qu = f.thresholdsUp.get(id)?.[j];
+        if (qu === undefined || Number.isNaN(qu)) return null;
+        return [f.lo[j] - q, f.hi[j] + qu];
+      }
       case "abs":
         return [f.median[j] - q, f.median[j] + q];
       case "scaled": {
@@ -358,6 +396,12 @@ export class Engine {
       }
       for (const [, m] of methods) m.update(f.origin, s);
       history.push(s);
+      if (isAsymmetric(this.settings.scoreType)) {
+        const su = this.scoreUp(f, j, y);
+        const upper = this.lead(k, true);
+        for (const [, m] of upper.methods) m.update(f.origin, su);
+        upper.history.push(su);
+      }
     }
     if (!evaluatedAny) {
       // Time still advances: entries older than R steps leave the window even without new pairs.
