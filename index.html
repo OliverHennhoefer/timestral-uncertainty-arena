@@ -175,6 +175,24 @@
             <div class="rank-wrap"><table class="rank" id="rank-table"></table></div>
             <p class="footnote-sm">Same (origin, lead) pairs for every row. Score = width + (2/α) · miss distance. +/− give a 95% block-bootstrap interval; rows sharing a rank can't be told apart. Click a row to focus it.</p>
           </section>
+
+          <details class="card calib" id="calib">
+            <summary>
+              <h3>Calibration</h3>
+              <span class="muted small" id="calib-sub"></span>
+            </summary>
+            <div class="grid2">
+              <div>
+                <h4>PIT histogram <span class="muted small">Timestral native</span></h4>
+                <canvas id="pit-canvas" class="chart"></canvas>
+              </div>
+              <div>
+                <h4>Reliability <span class="muted small" id="rel-legend"></span></h4>
+                <canvas id="rel-canvas" class="chart"></canvas>
+              </div>
+            </div>
+            <p class="footnote-sm">PIT is where each truth fell in the native forecast distribution. Flat means calibrated, a U shape means intervals too narrow, a hump means too wide, a tilt means bias; the band is a rough 95% range for a flat histogram. Reliability plots empirical against nominal coverage over several α, for the native quantiles and the focused method (each extra α reruns that method on the same pairs). The larger dot is the current α. Uses the leads picked in the ranking.</p>
+          </details>
         </main>
       </div>
       <div class="scrim" id="scrim"></div>

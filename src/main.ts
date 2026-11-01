@@ -2,6 +2,8 @@ import "./styles.css";
 import { METHODS, defaultParams } from "./conformal/methods";
 import type { Uncertainty } from "./engine/bootstrap";
 import { Engine, NATIVE_COLOR, NATIVE_ID, type RankBy, type ScoreType, type Settings, defaultSettings, rankRows } from "./engine/engine";
+import { CalibrationProbe, pitHistogram } from "./engine/calibration";
+import { type ReliabilityCurve, maxGap, pitChart, reliabilityChart } from "./ui/calibration";
 import { type Backend, BrowserBackend, NaiveBackend, ServerBackend } from "./model/backends";
 import { MODELS } from "./model/registry";
 import { DATASETS } from "./datasets";
@@ -52,6 +54,16 @@ let focusId = "aci";
 let histLead = 1;
 const MISS_COLOR = "#FF3B30";
 let showAll = true;
+/** Calibration diagnostics; the probe only runs while its card is open. */
+const calib = new CalibrationProbe();
+let calibTimer = 0;
+let calibOpen = (() => {
+  try {
+    return localStorage.getItem("ctimestral-calib-open") === "1";
+  } catch {
+    return false;
+  }
+})();
 /** Off: a stroke only moves forward in time; drawing left of the end does nothing. */
 let allowRewind = false;
 
@@ -484,6 +496,33 @@ function renderCharts() {
     order.map((id) => trace(id, prof.get(id)!.width)),
     { yMin: 0, format: (v) => v.toFixed(1) },
   );
+  renderCalibration();
+}
+
+/** PIT histogram and reliability diagram for the native interval and the focused method. */
+function renderCalibration() {
+  // Mid-recompute the stored forecasts are ahead of the engine; wait for its replay.
+  if (!calibOpen || backfilling) return;
+  // Shadow engines rebuild in slices so a focus change on a long series never blocks the page.
+  calib.sync(engine, focusId, 25);
+  if (!calib.ready && !calibTimer) calibTimer = window.setTimeout(() => ((calibTimer = 0), renderCalibration()), 0);
+  const lead = rankLead || undefined;
+  const pits = calib.pit(lead);
+  pitChart($<HTMLCanvasElement>("pit-canvas"), pitHistogram(pits, 10), NATIVE_COLOR);
+  const rel = calib.reliability(engine, lead);
+  const mid = calib.focusedMethod;
+  const curves: ReliabilityCurve[] = [{ name: NAMES[NATIVE_ID], color: NATIVE_COLOR, points: rel.native, dash: [4, 3], focus: !mid }];
+  if (mid) curves.push({ name: NAMES[mid], color: COLORS[mid], points: rel.method, focus: true });
+  reliabilityChart($<HTMLCanvasElement>("rel-canvas"), curves, 1 - engine.settings.alpha);
+  const gap = (pts: ReliabilityCurve["points"]) => {
+    const g = maxGap(pts);
+    return Number.isFinite(g) ? ` · max gap ${g.toFixed(1)} pts` : "";
+  };
+  $("rel-legend").innerHTML = curves
+    .map((c) => `<span class="rel-key"><span class="line${c.dash ? " dash" : ""}" style="border-color:${c.color}"></span>${c.name}${gap(c.points)}</span>`)
+    .join("");
+  const busy = mid && !calib.ready ? ` · rerunning ${NAMES[mid]} at other α… ${Math.round(calib.progress * 100)}%` : "";
+  $("calib-sub").textContent = `${pits.length} pairs · ${lead ? `lead ${lead}` : `leads 1–${engine.settings.evalLeads}`}${busy}`;
 }
 
 /** Bootstrap intervals, recomputed at most once a second (they are not cheap). */
@@ -894,6 +933,18 @@ function bindControls() {
   $<HTMLSelectElement>("rank-lead").addEventListener("change", (e) => {
     rankLead = Number((e.target as HTMLSelectElement).value) || 0;
     renderTable();
+    renderCalibration();
+  });
+  const calibEl = $<HTMLDetailsElement>("calib");
+  calibEl.open = calibOpen;
+  calibEl.addEventListener("toggle", () => {
+    calibOpen = calibEl.open;
+    try {
+      localStorage.setItem("ctimestral-calib-open", calibOpen ? "1" : "0");
+    } catch {
+      /* storage unavailable */
+    }
+    renderCalibration();
   });
   $<HTMLSelectElement>("rank-by").addEventListener("change", (e) => {
     rankBy = (e.target as HTMLSelectElement).value as RankBy;
