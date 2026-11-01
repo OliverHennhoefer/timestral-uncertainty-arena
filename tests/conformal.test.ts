@@ -228,6 +228,17 @@ describe("engine", () => {
     expect(asym.intervalScore).toBeLessThan(sym.intervalScore);
   });
 
+  it("naive baseline continues a ramp instead of staying flat", async () => {
+    const ramp = Float64Array.from({ length: 100 }, (_, t) => 2 * t);
+    const fc = await new NaiveBackend().forecast({ context: ramp, horizon: 16, symmetric: false, clip: false, maxContext: 512 });
+    const Q = fc.levels.length, mi = fc.levels.indexOf(0.5);
+    const med = (k: number) => fc.quantiles[(k - 1) * Q + mi];
+    expect(med(1)).toBeGreaterThan(198);
+    expect(med(16)).toBeGreaterThan(med(1));
+    // Damped: never more than slope / (1 - phi) above the last value.
+    expect(med(16) - 198).toBeLessThan(2 * 0.9 / 0.1 + 1e-6);
+  });
+
   it("interpolates quantiles between knots", () => {
     const q = Float32Array.from(TIMESTRAL_LEVELS);
     expect(quantileAt(q, 0, TIMESTRAL_LEVELS, 0.025)).toBeCloseTo(0.025, 6);

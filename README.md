@@ -34,7 +34,7 @@ npm run dev            # http://localhost:5173
 
 In the app, pick a backend:
 
-- **Naive baseline**: no download; last value plus empirical k-step changes. Handy to try the conformal side right away.
+- **Naive baseline**: no download; a damped local drift (last 8 points, damping 0.9) for the median plus the empirical k-step changes for the spread. Handy to try the conformal side right away.
 - **Timestral in this browser**: download 5M / 28M / 123M / 209M from the Hub (progress bar, cached for offline use), or load `config.json` + `model.safetensors` from disk.
 - **Timestral on a local server**: the official PyTorch package, any size, CPU or GPU:
 
