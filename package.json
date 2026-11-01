@@ -1,8 +1,8 @@
 {
-  "name": "ctimestral",
+  "name": "timestral-uncertainty-arena",
   "private": true,
   "version": "0.1.0",
-  "description": "Draw a time series, forecast it with Mistral's Timestral in the browser, and benchmark online conformal prediction intervals against the model's native quantiles.",
+  "description": "Timestral Uncertainty Arena: draw a time series, forecast it with Mistral's Timestral in the browser, and benchmark online conformal prediction intervals against the model's native quantiles.",
   "type": "module",
   "license": "MIT",
   "scripts": {
