@@ -6,6 +6,7 @@
  */
 
 import { ScoreHistory, pinball } from "./window";
+import { BOCPDACI, BOCPDQuantile, BayesianBelief, ChangepointCP, DiscountedBayes, ECI, SAOCP, SFOGD } from "./extra";
 
 export interface OnlineMethod {
   predict(key: number): number;
@@ -29,6 +30,12 @@ export interface MethodSpec {
   reference: string;
   summary: string;
   params: ParamSpec[];
+  /** "bayesian" for methods built on a probabilistic model of the score (grouped in the UI). */
+  family?: "conformal" | "bayesian";
+  /** False for purely model-based methods without a distribution-free coverage guarantee. */
+  guarantee?: boolean;
+  /** Switched on in fresh settings (default true). */
+  defaultOn?: boolean;
   create(history: ScoreHistory, alpha: number, params: Record<string, number>): OnlineMethod;
 }
 
@@ -328,6 +335,100 @@ export const METHODS: MethodSpec[] = [
     summary: "Weighted split conformal with geometric weights ρ^age, robust to drift.",
     params: [{ key: "rho", label: "Decay ρ", min: 0.8, max: 0.9999, step: 0.0001, default: 0.99 }],
     create: (_h, alpha, p) => new NexCP(alpha, p.rho, 500),
+  },
+  {
+    id: "eci",
+    name: "ECI",
+    color: "#FF2D55",
+    reference: "Wu, Hu, Bao, Xia & Zou, ICLR 2025",
+    summary: "Quantile tracker plus an error-quantification term (s − q)·f′(s − q) that also weighs how far the score fell from the threshold. Trades some coverage for width (bias grows with c).",
+    guarantee: false,
+    params: [
+      { key: "lr", label: "Learning rate", min: 0.001, max: 0.5, step: 0.001, default: 0.05, help: "Step as a fraction of the recent score range." },
+      { key: "c", label: "Sigmoid c", min: 0.05, max: 50, step: 0.05, default: 1, help: "Slope of the smoothed miss indicator f, per unit of the recent score range (paper default 1). Larger or smaller c both shrink the EQ term towards the plain quantile tracker." },
+      { key: "h", label: "Cutoff h", min: 0, max: 1, step: 0.01, default: 0, help: "ECI-cutoff: apply the EQ term only when |s − q| > h × range (0 = plain ECI)." },
+    ],
+    create: (h, alpha, p) => new ECI(h, alpha, p.lr, p.c, p.h),
+  },
+  {
+    id: "sfogd",
+    name: "SF-OGD",
+    color: "#C46A00",
+    reference: "Orabona & Pál 2016; Bhatnagar et al., ICML 2023",
+    summary: "Scale-free gradient descent on the pinball loss: step D/√Σg², no learning rate to tune.",
+    params: [],
+    defaultOn: false,
+    create: (h, alpha) => new SFOGD(h, alpha),
+  },
+  {
+    id: "saocp",
+    name: "SAOCP",
+    color: "#00C7BE",
+    reference: "Bhatnagar, Wang, Xiong & Bai, ICML 2023",
+    summary: "SF-OGD experts on geometric covering intervals, combined by coin betting: low regret on every time interval.",
+    defaultOn: false,
+    params: [{ key: "g", label: "Lifetime g", min: 1, max: 64, step: 1, default: 8, help: "Lifetime multiplier: an expert started at t lives g·2^(trailing zeros of t) steps." }],
+    create: (h, alpha, p) => new SAOCP(h, alpha, Math.max(1, Math.round(p.g))),
+  },
+  {
+    id: "belief",
+    name: "Bayesian belief CP",
+    color: "#D63AF9",
+    reference: "Zhang, Bombara & Yang, \"The Benefit of Being Bayesian in Online Conformal Prediction\", 2024",
+    summary: "Threshold = quantile of a posterior-style belief: prior mixed with the discounted empirical score distribution.",
+    family: "bayesian",
+    guarantee: false,
+    params: [{ key: "beta", label: "Discount β", min: 0.8, max: 0.9999, step: 0.0001, default: 0.99, help: "Per-step discount of past scores; the prior weight λ follows from β." }],
+    create: (_h, alpha, p) => new BayesianBelief(alpha, p.beta),
+  },
+  {
+    id: "bocpd_aci",
+    name: "BOCPD + ACI",
+    color: "#FFCC00",
+    reference: "Adams & MacKay 2007; Gibbs & Candès 2021",
+    summary: "Bayesian changepoint predictive, with its level α_t set by ACI so long-run coverage is guaranteed.",
+    family: "bayesian",
+    params: [
+      { key: "lambda", label: "Run length λ", min: 10, max: 5000, step: 10, default: 250, help: "Expected steps between changepoints (hazard 1/λ)." },
+      { key: "gamma", label: "γ step", min: 0.001, max: 0.2, step: 0.001, default: 0.01 },
+    ],
+    defaultOn: false,
+    create: (h, alpha, p) => new BOCPDACI(h, alpha, p.lambda, p.gamma),
+  },
+  {
+    id: "cpcp",
+    name: "Changepoint CP",
+    color: "#0A7E8C",
+    reference: "Barber et al. 2023 weights from Adams & MacKay 2007",
+    summary: "Weighted split conformal; a past score's weight is the posterior probability it is in the current regime.",
+    family: "bayesian",
+    guarantee: false,
+    params: [{ key: "lambda", label: "Run length λ", min: 10, max: 5000, step: 10, default: 250, help: "Expected steps between changepoints (hazard 1/λ)." }],
+    defaultOn: false,
+    create: (h, alpha, p) => new ChangepointCP(h, alpha, p.lambda),
+  },
+  {
+    id: "bocpd",
+    name: "BOCPD",
+    color: "#8E9A2F",
+    reference: "Adams & MacKay 2007",
+    summary: "Bayesian online changepoint detection, Normal–Inverse-Gamma per regime; threshold = predictive quantile. No guarantee.",
+    family: "bayesian",
+    guarantee: false,
+    params: [{ key: "lambda", label: "Run length λ", min: 10, max: 5000, step: 10, default: 250, help: "Expected steps between changepoints (hazard 1/λ)." }],
+    defaultOn: false,
+    create: (h, alpha, p) => new BOCPDQuantile(h, alpha, p.lambda),
+  },
+  {
+    id: "nig",
+    name: "Discounted Bayes",
+    color: "#3A3A8C",
+    reference: "West & Harrison 1997, discount variance learning",
+    summary: "Gaussian score with unknown mean and variance, evidence discounted by δ per step; Student-t predictive quantile. No guarantee.",
+    family: "bayesian",
+    guarantee: false,
+    params: [{ key: "delta", label: "Discount δ", min: 0.8, max: 0.9999, step: 0.0001, default: 0.98, help: "Keeps about 1/(1−δ) effective observations." }],
+    create: (h, alpha, p) => new DiscountedBayes(h, alpha, p.delta),
   },
 ];
 

@@ -562,9 +562,9 @@ function applySettings(patch: Partial<Settings>) {
 function renderMethods() {
   const list = $("method-list");
   const s = engine.settings;
-  list.innerHTML = METHODS.map(
-    (m) => `<div class="method" data-id="${m.id}">
-      <label class="switch" title="${m.summary} (${m.reference})">
+  const groups: [string, string][] = [["conformal", "Conformal"], ["bayesian", "Bayesian"]];
+  const item = (m: (typeof METHODS)[number]) => `<div class="method" data-id="${m.id}">
+      <label class="switch" title="${m.summary} (${m.reference})${m.guarantee === false ? " · no distribution-free coverage guarantee" : ""}">
         <input type="checkbox" class="toggle" ${s.enabled[m.id] ? "checked" : ""} /><span></span>
         <i class="dot" style="background:${m.color}"></i><b class="name">${m.name}</b>
       </label>
@@ -573,8 +573,13 @@ function renderMethods() {
         <div class="params">${m.params
           .map((p) => `<label title="${p.help ?? ""}">${p.label}<input type="number" data-param="${p.key}" min="${p.min}" max="${p.max}" step="${p.step}" value="${s.params[m.id]?.[p.key] ?? p.default}" /></label>`)
           .join("")}</div></details>` : ""}
-    </div>`,
-  ).join("");
+    </div>`;
+  list.innerHTML = groups
+    .map(([fam, label]) => {
+      const ms = METHODS.filter((m) => (m.family ?? "conformal") === fam);
+      return ms.length ? `<div class="method-group">${label}</div>${ms.map(item).join("")}` : "";
+    })
+    .join("");
   list.querySelectorAll<HTMLElement>(".method[data-id]").forEach((row) => {
     const id = row.dataset.id!;
     row.querySelector<HTMLInputElement>(".toggle")!.addEventListener("change", (e) => {
