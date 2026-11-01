@@ -20,8 +20,8 @@ jobs:
       - run: npm run build
 
   parity:
-    # Checks the TypeScript port against the official PyTorch package on a random
-    # checkpoint (no Hugging Face download needed).
+    # Checks the TypeScript ports against the official PyTorch packages (timestral,
+    # chronos-forecasting) on random checkpoints (no Hugging Face download needed).
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -32,10 +32,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Install the official timestral package (CPU torch)
+      - name: Install the official timestral and chronos-forecasting packages (CPU torch)
         run: |
           pip install --index-url https://download.pytorch.org/whl/cpu torch
-          pip install numpy safetensors huggingface_hub "git+https://github.com/mistralai/timestral.git"
+          pip install numpy safetensors huggingface_hub "git+https://github.com/mistralai/timestral.git" chronos-forecasting
       - run: python tools/make_parity_fixture.py tests/fixtures/parity
+      - run: python tools/make_bolt_parity_fixture.py tests/fixtures/bolt-parity
       - run: npm ci
-      - run: npx vitest run tests/parity.test.ts
+      - run: npx vitest run tests/parity.test.ts tests/bolt-parity.test.ts

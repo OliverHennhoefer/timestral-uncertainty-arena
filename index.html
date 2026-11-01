@@ -24,11 +24,13 @@
               <select id="backend">
                 <option value="naive">Naive baseline (no download)</option>
                 <option value="browser">Timestral in this browser</option>
-                <option value="server">Timestral on a local server</option>
+                <option value="chronos">Chronos-Bolt in this browser</option>
+                <option value="server">Timestral or Chronos-Bolt on a local server</option>
               </select>
             </label>
             <div id="browser-panel" class="hidden">
               <div id="model-list"></div>
+              <p class="hint-text hidden" id="bolt-note">Chronos-Bolt predicts 10–90% quantiles; wider native bands extend its tails with a Gaussian shape. Use α ≥ 0.2 to compare its untouched band.</p>
               <details class="inline">
                 <summary>Load from files instead</summary>
                 <p class="hint-text">Pick <code>config.json</code> and <code>model.safetensors</code> from a downloaded checkpoint.</p>
@@ -40,7 +42,7 @@
               <label class="field">Server URL <input id="server-url" value="http://127.0.0.1:8765" /></label>
               <label class="field">Checkpoint <select id="server-model"></select></label>
               <button id="btn-connect" class="wide">Connect</button>
-              <p class="hint-text">Run <code>python server/serve.py</code> from the repo. It uses the official PyTorch package and suits 123M and 209M.</p>
+              <p class="hint-text">Run <code>python server/serve.py</code> from the repo. It uses the official PyTorch packages and suits the largest checkpoints.</p>
             </div>
           </details>
 
@@ -58,13 +60,13 @@
             </div>
             <label class="field">Horizon alignment
               <select id="align" title="How to handle leads beyond the calibrated ones">
-                <option value="full">Full model horizon</option>
-                <option value="calibrate">Conformal follows the horizon</option>
                 <option value="cut">Cut forecast to calibrated leads</option>
+                <option value="calibrate">Conformal follows the horizon</option>
+                <option value="full">Full model horizon (not aligned)</option>
               </select>
             </label>
             <p class="hint-text" id="align-hint"></p>
-            <label class="switch"><input type="checkbox" id="symmetric" checked /><span></span>Symmetric averaging (2 passes)</label>
+            <label class="switch"><input type="checkbox" id="symmetric" checked /><span></span>Symmetric averaging (2 passes, Timestral only)</label>
             <label class="switch"><input type="checkbox" id="clip" checked /><span></span>Clip at 0 for non-negative series</label>
           </details>
 
@@ -133,7 +135,30 @@
           <section class="card plot-card">
             <div class="canvas-wrap">
               <canvas id="main-canvas"></canvas>
+              <div class="yctl" title="Y axis. Scroll on the axis strip (or Ctrl/Alt + scroll) to zoom, drag it to pan, double-click it to refit.">
+                <select id="y-mode" aria-label="Y-axis range">
+                  <option value="bands">Y: fit bands</option>
+                  <option value="series">Y: fit series</option>
+                  <option value="fixed">Y: 0–100</option>
+                  <option value="manual">Y: manual</option>
+                </select>
+                <button class="icon" id="y-out" aria-label="Zoom y out">−</button>
+                <button class="icon" id="y-in" aria-label="Zoom y in">+</button>
+                <span class="ctl-sep"></span>
+                <button class="icon" id="x-full" title="Full screen (F)" aria-label="Full screen">
+                  <svg viewBox="0 0 20 20" width="15" height="15" aria-hidden="true"><path d="M3.5 7.5v-4h4M16.5 7.5v-4h-4M3.5 12.5v4h4M16.5 12.5v4h-4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </button>
+              </div>
               <div class="hint" id="draw-hint">Draw a curve from left to right. Every new step is forecast.</div>
+            </div>
+            <div class="nav-row">
+              <canvas id="overview-canvas" title="Overview: drag the box to pan, drag its edges to zoom, click elsewhere to jump there, scroll to zoom"></canvas>
+              <div class="nav-btns">
+                <button class="icon" id="x-out" title="Zoom time out (Ctrl/Alt + scroll on the chart)" aria-label="Zoom time out">−</button>
+                <button class="icon" id="x-in" title="Zoom time in" aria-label="Zoom time in">+</button>
+                <button class="ghost small-btn" id="x-fit" title="Show the whole series">All</button>
+                <button class="ghost small-btn active" id="x-latest" title="Follow the newest point">Latest</button>
+              </div>
             </div>
             <div class="legend" id="legend"></div>
           </section>
@@ -175,6 +200,24 @@
             <div class="rank-wrap"><table class="rank" id="rank-table"></table></div>
             <p class="footnote-sm">Same (origin, lead) pairs for every row. Score = width + (2/α) · miss distance. +/− give a 95% block-bootstrap interval; rows sharing a rank can't be told apart. Click a row to focus it.</p>
           </section>
+
+          <details class="card calib" id="calib">
+            <summary>
+              <h3>Calibration</h3>
+              <span class="muted small" id="calib-sub"></span>
+            </summary>
+            <div class="grid2">
+              <div>
+                <h4>PIT histogram <span class="muted small">Timestral native</span></h4>
+                <canvas id="pit-canvas" class="chart"></canvas>
+              </div>
+              <div>
+                <h4>Reliability <span class="muted small" id="rel-legend"></span></h4>
+                <canvas id="rel-canvas" class="chart"></canvas>
+              </div>
+            </div>
+            <p class="footnote-sm">PIT is where each truth fell in the native forecast distribution. Flat means calibrated, a U shape means intervals too narrow, a hump means too wide, a tilt means bias; the band is a rough 95% range for a flat histogram. Reliability plots empirical against nominal coverage over several α, for the native quantiles and the focused method (each extra α reruns that method on the same pairs). The larger dot is the current α. Uses the leads picked in the ranking.</p>
+          </details>
         </main>
       </div>
       <div class="scrim" id="scrim"></div>
