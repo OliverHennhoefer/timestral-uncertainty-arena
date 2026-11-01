@@ -1,5 +1,6 @@
 import "./styles.css";
 import { METHODS, defaultParams } from "./conformal/methods";
+import type { Uncertainty } from "./engine/bootstrap";
 import { Engine, NATIVE_COLOR, NATIVE_ID, type RankBy, type ScoreType, type Settings, defaultSettings, rankRows } from "./engine/engine";
 import { type Backend, BrowserBackend, NaiveBackend, ServerBackend } from "./model/backends";
 import { MODELS } from "./model/registry";
@@ -24,6 +25,10 @@ let maxContext = 256;
 let symmetric = true;
 let clip = true;
 let rankBy: RankBy = "interval_score";
+/** 0 = pooled over all scored leads, else a single lead. */
+let rankLead = 0;
+let uncCache: { key: string; at: number; len: number; value: Map<string, Uncertainty> } | null = null;
+let uncTimer = 0;
 let focusId = "aci";
 const MISS_COLOR = "#FF3B30";
 let showAll = true;
@@ -422,7 +427,7 @@ function renderCharts() {
   const xs = engine.traceT;
   const target = 1 - engine.settings.alpha;
   $("cov-target").textContent = `target ${(target * 100).toFixed(0)}%`;
-  $("cov-target").title = `Over the last ${engine.settings.rolling} evaluated pairs`;
+  $("cov-target").title = `Over the last ${engine.settings.rolling} time steps (all scored leads)`;
   // The focused method is drawn last and solid; the others recede.
   const order = [...ids.filter((id) => id !== focusId), ...ids.filter((id) => id === focusId)];
   const trace = (id: string, values: number[]) => ({
@@ -443,12 +448,60 @@ function renderCharts() {
     order.map((id) => trace(id, engine.metrics.get(id)!.widthTrace)),
     { yMin: 0, format: (v) => v.toFixed(1) },
   );
+  // Per-lead profile: is the method calibrated at every lead, not just on average?
+  const K = engine.settings.evalLeads;
+  const leads = Array.from({ length: K }, (_, i) => i + 1);
+  const prof = new Map(order.map((id) => [id, engine.leadProfile(id)]));
+  const anyData = [...prof.values()].some((p) => p.coverage.some(Number.isFinite));
+  lineChart(
+    $<HTMLCanvasElement>("lead-cov-canvas"),
+    anyData ? leads : [],
+    order.map((id) => trace(id, prof.get(id)!.coverage)),
+    { target, yMax: 1, floor: 0, format: (v) => `${(v * 100).toFixed(0)}%` },
+  );
+  lineChart(
+    $<HTMLCanvasElement>("lead-width-canvas"),
+    anyData ? leads : [],
+    order.map((id) => trace(id, prof.get(id)!.width)),
+    { yMin: 0, format: (v) => v.toFixed(1) },
+  );
+}
+
+/** Bootstrap intervals, recomputed at most once a second (they are not cheap). */
+function uncertainty(): Map<string, Uncertainty> {
+  const lead = rankLead || undefined;
+  const key = `${rankLead}|${engine.revision}|${engine.rowIds.join(",")}|${JSON.stringify(engine.settings)}`;
+  const now = performance.now();
+  const len = engine.traceT.length;
+  if (!uncCache || uncCache.key !== key || (uncCache.len !== len && now - uncCache.at > 1000)) {
+    uncCache = { key, at: now, len, value: engine.uncertainty(lead) };
+  } else if (uncCache.len !== len && !uncTimer) {
+    // Too soon to refresh: make sure the final state still gets its intervals.
+    uncTimer = window.setTimeout(() => { uncTimer = 0; renderTable(); }, 1050);
+  }
+  return uncCache.value;
+}
+
+function renderLeadOptions() {
+  const sel = $<HTMLSelectElement>("rank-lead");
+  const K = engine.settings.evalLeads;
+  if (rankLead > K) rankLead = 0;
+  sel.innerHTML = `<option value="0">All leads 1–${K}</option>` + Array.from({ length: K }, (_, i) => `<option value="${i + 1}">Lead ${i + 1}</option>`).join("");
+  sel.value = String(rankLead);
 }
 
 function renderTable() {
   const alpha = engine.settings.alpha;
   const target = 1 - alpha;
-  const rows = rankRows(engine.table(), alpha, rankBy);
+  const unc = uncertainty();
+  const rows = rankRows(engine.table(rankLead || undefined), alpha, rankBy, 0.02, unc);
+  // Percentile intervals need not be symmetric, so show the lower and upper distances separately.
+  const pm = (est: number, ci: [number, number] | undefined, scale = 1, digits = 2) => {
+    if (!ci || !Number.isFinite(est) || !Number.isFinite(ci[0]) || !Number.isFinite(ci[1])) return `<span class="pm"></span>`;
+    const lo = Math.max(0, est - ci[0]) * scale, hi = Math.max(0, ci[1] - est) * scale;
+    const tip = `95% interval ${(ci[0] * scale).toFixed(digits)} – ${(ci[1] * scale).toFixed(digits)}`;
+    return `<span class="pm" title="${tip}"><span>+${hi.toFixed(digits)}</span><span>−${lo.toFixed(digits)}</span></span>`;
+  };
   const pct = (v: number) => (Number.isFinite(v) ? `${(v * 100).toFixed(1)}%` : "–");
   const num = (v: number) => (Number.isFinite(v) ? v.toFixed(2) : "–");
   const bar = (v: number, col: string) =>
@@ -457,13 +510,14 @@ function renderTable() {
     `<tr><th>#</th><th>Method</th><th>Coverage</th><th>Width</th><th>Score</th></tr>`,
     ...rows.map((r, i) => {
       const off = Number.isFinite(r.coverage) && Math.abs(r.coverage - target) > 0.05 ? ' class="off"' : "";
-      const tip = `Rolling coverage ${pct(r.rollingCoverage)} · ${r.n} pairs`;
-      return `<tr class="${i === 0 && r.n > 0 ? "first" : ""}${r.id === focusId ? " focus" : ""}" data-id="${r.id}" title="${tip}">
+      const u = unc.get(r.id);
+      const tip = `Rolling coverage ${pct(r.rollingCoverage)} · ${r.n} pairs${r.tied ? " · tied with the row above" : ""}`;
+      return `<tr class="${i === 0 && r.n > 0 ? "first" : ""}${r.id === focusId ? " focus" : ""}${r.tied ? " tied" : ""}" data-id="${r.id}" title="${tip}">
         <td>${r.n ? r.rank : "–"}</td>
         <td><span class="dot" style="background:${COLORS[r.id]}"></span>${NAMES[r.id]}</td>
-        <td${off}>${bar(r.coverage, COLORS[r.id])}${pct(r.coverage)}</td>
+        <td${off}>${bar(r.coverage, COLORS[r.id])}${pct(r.coverage)}${pm(r.coverage, u?.coverage, 100, 1)}</td>
         <td>${num(r.meanWidth)}</td>
-        <td>${num(r.intervalScore)}</td></tr>`;
+        <td>${num(r.intervalScore)}${pm(r.intervalScore, u?.intervalScore)}</td></tr>`;
     }),
   ];
   $("rank-table").innerHTML = html.join("");
@@ -711,6 +765,7 @@ function bindControls() {
     });
   };
   num("eval-leads", "evalLeads");
+  $("eval-leads").addEventListener("change", renderLeadOptions);
   num("window", "window");
   num("warmup", "warmup");
   num("rolling", "rolling");
@@ -725,6 +780,11 @@ function bindControls() {
     $("draw-hint").textContent = drawHint();
   });
   $("draw-hint").textContent = drawHint();
+  renderLeadOptions();
+  $<HTMLSelectElement>("rank-lead").addEventListener("change", (e) => {
+    rankLead = Number((e.target as HTMLSelectElement).value) || 0;
+    renderTable();
+  });
   $<HTMLSelectElement>("rank-by").addEventListener("change", (e) => {
     rankBy = (e.target as HTMLSelectElement).value as RankBy;
     renderTable();

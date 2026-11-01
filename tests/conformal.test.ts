@@ -3,6 +3,7 @@ import { METHODS, defaultParams } from "../src/conformal/methods";
 import { ScoreHistory, conformalQuantile } from "../src/conformal/window";
 import { Engine, NATIVE_ID, defaultSettings, quantileAt, rankRows } from "../src/engine/engine";
 import { NaiveBackend, TIMESTRAL_LEVELS, normInv } from "../src/model/backends";
+import { blockBootstrap, indistinguishable } from "../src/engine/bootstrap";
 
 function rng(seed: number) {
   let s = seed >>> 0;
@@ -122,6 +123,88 @@ describe("engine", () => {
     h.push(10);
     // After a miss alpha_t drops below 0, so the next threshold is the cap (largest score).
     expect(aci.predict(1)).toBe(10);
+  });
+
+  it("per-lead tables add up to the pooled table", async () => {
+    const r = rng(5);
+    const y = Array.from({ length: 250 }, () => normInv(r()));
+    const e = new Engine({ ...defaultSettings(), evalLeads: 4 });
+    await run(e, y, 6);
+    const pooled = e.table();
+    for (const row of pooled) {
+      const per = [1, 2, 3, 4].map((k) => e.table(k).find((x) => x.id === row.id)!);
+      const n = per.reduce((a, p) => a + p.n, 0);
+      expect(n).toBe(row.n);
+      expect(per.reduce((a, p) => a + p.coverage * p.n, 0) / n).toBeCloseTo(row.coverage, 10);
+      expect(per.reduce((a, p) => a + p.intervalScore * p.n, 0) / n).toBeCloseTo(row.intervalScore, 10);
+      const prof = e.leadProfile(row.id);
+      expect(prof.coverage.length).toBe(4);
+      expect(prof.coverage[0]).toBeCloseTo(per[0].coverage, 10);
+    }
+  });
+
+  it("rolling window counts time steps, not pairs", async () => {
+    const r = rng(6);
+    const y = Array.from({ length: 120 }, () => normInv(r()));
+    const e = new Engine({ ...defaultSettings(), evalLeads: 4, rolling: 1 });
+    await run(e, y, 4);
+    const m = e.metrics.get(NATIVE_ID)!;
+    const last = m.arr.n.length - 1;
+    // R = 1 step: the rolling value is exactly the last arrival's pairs (4 leads).
+    expect(m.arr.n[last]).toBe(4);
+    expect(e.table().find((x) => x.id === NATIVE_ID)!.rollingCoverage).toBeCloseTo(m.arr.cov[last] / 4, 12);
+  });
+
+  it("rolling window expires by elapsed steps when forecasts are sparse", async () => {
+    const r = rng(8);
+    const y = Array.from({ length: 100 }, () => normInv(r()));
+    const e = new Engine({ ...defaultSettings(), evalLeads: 4, warmup: 1, rolling: 5 });
+    for (let t = 0; t < y.length; t++) {
+      e.append(y[t]);
+      if (t === 10 || t === 15) {
+        const fc = await naive.forecast({ context: Float64Array.from(e.series), horizon: 4, symmetric: false, clip: false, maxContext: 512 });
+        e.addForecast(t, fc.quantiles, fc.horizon, fc.levels);
+      }
+    }
+    e.catchUp();
+    const row = e.table().find((x) => x.id === NATIVE_ID)!;
+    expect(row.n).toBe(4); // origin 15, leads 1-4, scored at t = 16..19
+    expect(Number.isNaN(row.rollingCoverage)).toBe(true); // nothing in the last 5 steps
+    expect(Number.isNaN(e.table(1).find((x) => x.id === NATIVE_ID)!.rollingCoverage)).toBe(true);
+  });
+
+  it("bootstrap reports nothing with fewer than two blocks of data", () => {
+    const s = { n: [1, 1, 1, 1], cov: [1, 0, 1, 1], width: [1, 2, 3, 4], is: [1, 2, 3, 4] };
+    expect(blockBootstrap(new Map([["a", s]]), 4, 16).size).toBe(0);
+  });
+
+  it("block bootstrap covers the truth and detects ties", () => {
+    const r = rng(11);
+    const T = 600;
+    const mk = (shift: number) => {
+      const is = Array.from({ length: T }, () => 1 + shift + Math.abs(normInv(r())));
+      return { n: new Array(T).fill(1), cov: is.map((v) => (v < 2.5 ? 1 : 0)), width: is, is };
+    };
+    const a = mk(0), b = mk(0), c = mk(1);
+    const u = blockBootstrap(new Map([["a", a], ["b", b], ["c", c]]), T, 16, 400);
+    const mean = a.is.reduce((x, v) => x + v, 0) / T;
+    const ci = u.get("a")!.intervalScore;
+    expect(ci[0]).toBeLessThan(mean);
+    expect(ci[1]).toBeGreaterThan(mean);
+    expect(indistinguishable(u.get("a")!.scoreSamples, u.get("b")!.scoreSamples)).toBe(true);
+    expect(indistinguishable(u.get("a")!.scoreSamples, u.get("c")!.scoreSamples)).toBe(false);
+  });
+
+  it("ranking shares ranks between indistinguishable rows", async () => {
+    const r = rng(13);
+    const y = Array.from({ length: 300 }, () => normInv(r()));
+    const e = new Engine({ ...defaultSettings(), evalLeads: 4 });
+    await run(e, y, 4);
+    const ranked = rankRows(e.table(), 0.1, "interval_score", 0.02, e.uncertainty());
+    expect(ranked[0].rank).toBe(1);
+    for (const row of ranked) if (row.tied) expect(row.rank).toBeLessThan(ranked.indexOf(row) + 1);
+    // Several online methods are statistically indistinguishable on iid noise.
+    expect(ranked.some((x) => x.tied)).toBe(true);
   });
 
   it("interpolates quantiles between knots", () => {
