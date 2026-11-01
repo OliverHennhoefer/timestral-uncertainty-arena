@@ -56,6 +56,14 @@
               </label>
               <label class="field">Max context <input id="max-context" type="number" min="32" max="32768" step="32" value="256" /></label>
             </div>
+            <label class="field">Horizon alignment
+              <select id="align" title="How to handle leads beyond the calibrated ones">
+                <option value="full">Full model horizon</option>
+                <option value="calibrate">Conformal follows the horizon</option>
+                <option value="cut">Cut forecast to calibrated leads</option>
+              </select>
+            </label>
+            <p class="hint-text" id="align-hint"></p>
             <label class="switch"><input type="checkbox" id="symmetric" checked /><span></span>Symmetric averaging (2 passes)</label>
             <label class="switch"><input type="checkbox" id="clip" checked /><span></span>Clip at 0 for non-negative series</label>
           </details>
