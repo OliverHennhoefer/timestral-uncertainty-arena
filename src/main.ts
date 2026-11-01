@@ -7,6 +7,7 @@ import { MODELS } from "./model/registry";
 import { DATASETS } from "./datasets";
 import { PRESETS as SYNTHETIC } from "./synthetic";
 import { FONT, cssVar, fitCanvas, lineChart, withAlpha } from "./ui/plot";
+import { Extent, FIXED_RANGE, type YMode, fitRange, niceTicks, zoomRange } from "./ui/yaxis";
 
 const PRESETS = [...SYNTHETIC, ...DATASETS];
 
@@ -28,17 +29,29 @@ let horizon = 64;
  * How the native forecast and the conformal bands line up in time:
  * "full" draws the whole model horizon while conformal stops at the calibrated leads,
  * "calibrate" sets the calibrated leads to the horizon so conformal covers every lead,
- * "cut" trims the drawn native forecast to the calibrated leads.
+ * "cut" (default) trims the drawn native forecast to where the conformal bands end.
  */
 type Align = "full" | "calibrate" | "cut";
 let align: Align = (() => {
   try {
-    const v = localStorage.getItem("ctimestral-align");
-    return v === "calibrate" || v === "cut" ? v : "full";
+    // v2: the default changed to an aligned view, so an old stored "full" default is not reused.
+    const v = localStorage.getItem("ctimestral-align-v2");
+    return v === "full" || v === "calibrate" ? v : "cut";
   } catch {
-    return "full";
+    return "cut";
   }
 })();
+/** Y-axis range of the main chart; see ui/yaxis.ts. "manual" is set by zooming or panning. */
+let yMode: YMode = (() => {
+  try {
+    const v = localStorage.getItem("ctimestral-ymode");
+    return v === "series" || v === "bands" || v === "fixed" ? v : "bands";
+  } catch {
+    return "bands";
+  }
+})();
+/** The auto mode to go back to on reset (double-click the axis). */
+let yAuto = yMode as Exclude<YMode, "manual">;
 let maxContext = 256;
 let symmetric = true;
 let clip = true;
@@ -216,8 +229,55 @@ function drawTo(step: number, value: number) {
 
 const round = (v: number) => Math.round(v * 100) / 100;
 
+// Y axis: scroll on the axis strip to zoom, drag the strip
+// to pan, double-click it to go back to the fitted range.
+const AXIS_GUTTER = 44;
+let yDrag: { y: number; lo: number; hi: number } | null = null;
+const inGutter = (e: MouseEvent) => e.clientX - canvas.getBoundingClientRect().left < AXIS_GUTTER;
+
+function setYMode(m: YMode) {
+  yMode = m;
+  if (m !== "manual") yAuto = m;
+  $<HTMLSelectElement>("y-mode").value = m;
+  try {
+    localStorage.setItem("ctimestral-ymode", m === "manual" ? yAuto : m);
+  } catch {
+    /* storage unavailable */
+  }
+  requestRender();
+}
+
+function zoomY(factor: number, clientY?: number) {
+  const rect = canvas.getBoundingClientRect();
+  const anchor = clientY === undefined ? undefined : view.yMax - ((clientY - rect.top) / rect.height) * (view.yMax - view.yMin);
+  [view.yMin, view.yMax] = zoomRange(view.yMin, view.yMax, factor, anchor);
+  setYMode("manual");
+}
+
+canvas.addEventListener(
+  "wheel",
+  (e) => {
+    if (!inGutter(e)) return;
+    e.preventDefault();
+    zoomY(Math.exp(Math.sign(e.deltaY) * Math.min(Math.abs(e.deltaY), 200) * 0.002), e.clientY);
+  },
+  { passive: false },
+);
+canvas.addEventListener("dblclick", (e) => {
+  if (inGutter(e)) setYMode(yAuto);
+});
+canvas.addEventListener("mousemove", (e) => {
+  if (!drawing && !yDrag) canvas.style.cursor = inGutter(e) ? "ns-resize" : "";
+});
+
 canvas.addEventListener("pointerdown", (e) => {
+  if (inGutter(e) && engine.series.length) {
+    yDrag = { y: e.clientY, lo: view.yMin, hi: view.yMax };
+    canvas.setPointerCapture(e.pointerId);
+    return;
+  }
   if (playing) togglePlay();
+  setFollow(true);
   drawing = true;
   canvas.setPointerCapture(e.pointerId);
   const step = stepAt(e.clientX);
@@ -225,10 +285,19 @@ canvas.addEventListener("pointerdown", (e) => {
   drawTo(step, valueAt(e.clientY));
 });
 canvas.addEventListener("pointermove", (e) => {
+  if (yDrag) {
+    const d = ((e.clientY - yDrag.y) / canvas.getBoundingClientRect().height) * (yDrag.hi - yDrag.lo);
+    view.yMin = yDrag.lo + d;
+    view.yMax = yDrag.hi + d;
+    if (yMode !== "manual") setYMode("manual");
+    else requestRender();
+    return;
+  }
   if (!drawing) return;
   for (const ev of e.getCoalescedEvents?.() ?? [e]) drawTo(stepAt(ev.clientX), valueAt(ev.clientY));
 });
 const endStroke = () => {
+  yDrag = null;
   if (!drawing) return;
   drawing = false;
   followEnd(0.8, 0.45);
@@ -242,12 +311,179 @@ function viewSteps(): number {
 
 /** Scroll so the series end sits at `to` of the width once it passes `trigger`. */
 function followEnd(trigger: number, to: number) {
+  if (!follow && engine.series.length) {
+    requestRender();
+    return;
+  }
   const endStep = seriesOffset + engine.series.length;
   const len = viewSteps();
   if (endStep - view.start > trigger * len) view.start = Math.max(0, Math.round(endStep - to * len));
   if (engine.series.length === 0) view.start = 0;
   requestRender();
 }
+
+
+// ---------------------------------------------------------------------------------------
+// Navigation: x zoom and pan, the overview strip, follow-latest and fullscreen.
+
+/** Whether the view keeps the newest point in sight. Any manual navigation turns it off. */
+let follow = true;
+const overview = $<HTMLCanvasElement>("overview-canvas");
+const MIN_PX = 0.2, MAX_PX = 40;
+
+function setFollow(on: boolean) {
+  follow = on;
+  $("x-latest").classList.toggle("active", on);
+}
+
+/** Total steps the overview spans: the series plus room for the latest forecast. */
+function overviewSpan(): number {
+  const f = engine.forecasts.get(engine.latestOrigin());
+  const end = seriesOffset + engine.series.length + (f ? f.horizon : 0);
+  return Math.max(end, view.start + viewSteps(), 1);
+}
+
+function setXView(start: number, px = view.pxPerStep) {
+  view.pxPerStep = Math.min(MAX_PX, Math.max(MIN_PX, px));
+  view.start = Math.max(0, start);
+  setFollow(false);
+  requestRender();
+}
+
+/** Zoom the time axis by `factor` (>1 zooms out) keeping the step under `clientX` in place. */
+function zoomX(factor: number, clientX?: number) {
+  const rect = canvas.getBoundingClientRect();
+  const fx = clientX === undefined ? 0.5 : (clientX - rect.left) / rect.width;
+  const anchor = view.start + fx * viewSteps();
+  const px = Math.min(MAX_PX, Math.max(MIN_PX, view.pxPerStep / factor));
+  setXView(anchor - (fx * rect.width) / px, px);
+}
+
+function fitAll() {
+  const w = canvas.getBoundingClientRect().width;
+  const f = engine.forecasts.get(engine.latestOrigin());
+  const steps = Math.max(50, engine.series.length + (f ? f.horizon : 0) + 4);
+  setXView(seriesOffset - 2, w / steps);
+}
+
+function goLatest() {
+  setFollow(true);
+  // Unconditional, so it also comes back from a view panned past the end of the series.
+  view.start = Math.max(0, Math.round(seriesOffset + engine.series.length - 0.75 * viewSteps()));
+  requestRender();
+}
+
+// Main chart: Ctrl/Alt + scroll (or a trackpad pinch) zooms time, Shift + scroll or a
+// sideways scroll pans it. Plain scroll is left to the page, except on the y-axis strip.
+canvas.addEventListener(
+  "wheel",
+  (e) => {
+    if (inGutter(e)) return; // the y-axis handler
+    if (e.ctrlKey || e.altKey) {
+      e.preventDefault();
+      zoomX(Math.exp(Math.sign(e.deltaY) * Math.min(Math.abs(e.deltaY), 200) * 0.003), e.clientX);
+    } else if (e.shiftKey || Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
+      e.preventDefault();
+      const d = e.shiftKey && !e.deltaX ? e.deltaY : e.deltaX;
+      setXView(view.start + d / view.pxPerStep);
+    }
+  },
+  { passive: false },
+);
+
+/** Overview strip: the whole series, with the visible window as a draggable box. */
+function renderOverview() {
+  const { ctx, w, h } = fitCanvas(overview);
+  ctx.fillStyle = cssVar("--plot-bg");
+  ctx.fillRect(0, 0, w, h);
+  const span = overviewSpan();
+  const OX = (step: number) => (step / span) * w;
+  const n = engine.series.length;
+  if (n) {
+    let lo = Infinity, hi = -Infinity;
+    for (const v of engine.series) (lo = Math.min(lo, v)), (hi = Math.max(hi, v));
+    if (hi - lo < 1e-9) (lo -= 1), (hi += 1);
+    const OY = (v: number) => h - 4 - ((v - lo) / (hi - lo)) * (h - 8);
+    ctx.strokeStyle = withAlpha(cssVar("--series").startsWith("#") ? cssVar("--series") : "#1d1d1f", 0.55);
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    // One min-max pair per pixel column keeps long series cheap and spikes visible.
+    const per = Math.max(1, Math.floor(n / w));
+    for (let i = 0; i < n; i += per) {
+      let a = Infinity, b = -Infinity;
+      for (let j = i; j < Math.min(n, i + per); j++) (a = Math.min(a, engine.series[j])), (b = Math.max(b, engine.series[j]));
+      const x = OX(seriesOffset + i);
+      if (i === 0) ctx.moveTo(x, OY(engine.series[0]));
+      ctx.lineTo(x, OY(b));
+      if (per > 1) ctx.lineTo(x, OY(a));
+    }
+    ctx.stroke();
+  }
+  const x0 = OX(view.start), x1 = OX(view.start + viewSteps());
+  ctx.fillStyle = withAlpha(cssVar("--accent").startsWith("#") ? cssVar("--accent") : "#0071e3", 0.12);
+  ctx.fillRect(x0, 0, Math.max(3, x1 - x0), h);
+  ctx.strokeStyle = withAlpha(cssVar("--accent").startsWith("#") ? cssVar("--accent") : "#0071e3", 0.7);
+  ctx.lineWidth = 1.5;
+  ctx.strokeRect(x0 + 0.75, 0.75, Math.max(3, x1 - x0) - 1.5, h - 1.5);
+}
+
+let ovDrag: { mode: "move" | "l" | "r"; x: number; start: number; end: number } | null = null;
+const ovStep = (clientX: number) => {
+  const r = overview.getBoundingClientRect();
+  return ((clientX - r.left) / r.width) * overviewSpan();
+};
+overview.addEventListener("pointerdown", (e) => {
+  const r = overview.getBoundingClientRect();
+  const span = overviewSpan();
+  const x0 = r.left + (view.start / span) * r.width, x1 = r.left + ((view.start + viewSteps()) / span) * r.width;
+  let mode: "move" | "l" | "r" = "move";
+  if (Math.abs(e.clientX - x0) < 7) mode = "l";
+  else if (Math.abs(e.clientX - x1) < 7) mode = "r";
+  else if (e.clientX < x0 || e.clientX > x1) setXView(ovStep(e.clientX) - viewSteps() / 2); // jump: centre on the click
+  ovDrag = { mode, x: e.clientX, start: view.start, end: view.start + viewSteps() };
+  overview.setPointerCapture(e.pointerId);
+});
+overview.addEventListener("pointermove", (e) => {
+  if (!ovDrag) {
+    const r = overview.getBoundingClientRect();
+    const span = overviewSpan();
+    const x0 = r.left + (view.start / span) * r.width, x1 = r.left + ((view.start + viewSteps()) / span) * r.width;
+    overview.style.cursor = Math.abs(e.clientX - x0) < 7 || Math.abs(e.clientX - x1) < 7 ? "ew-resize" : "grab";
+    return;
+  }
+  const w = canvas.getBoundingClientRect().width;
+  const d = ((e.clientX - ovDrag.x) / overview.getBoundingClientRect().width) * overviewSpan();
+  if (ovDrag.mode === "move") setXView(ovDrag.start + d);
+  else if (ovDrag.mode === "l") {
+    const s0 = Math.min(ovDrag.start + d, ovDrag.end - 10);
+    setXView(s0, w / (ovDrag.end - s0));
+  } else {
+    const e1 = Math.max(ovDrag.end + d, ovDrag.start + 10);
+    setXView(ovDrag.start, w / (e1 - ovDrag.start));
+  }
+});
+const endOv = () => (ovDrag = null);
+overview.addEventListener("pointerup", endOv);
+overview.addEventListener("pointercancel", endOv);
+overview.addEventListener(
+  "wheel",
+  (e) => {
+    e.preventDefault();
+    const r = canvas.getBoundingClientRect();
+    zoomX(Math.exp(Math.sign(e.deltaY) * Math.min(Math.abs(e.deltaY), 200) * 0.003), r.left + r.width / 2);
+  },
+  { passive: false },
+);
+
+function toggleFullscreen() {
+  const card = document.querySelector<HTMLElement>(".plot-card")!;
+  if (document.fullscreenElement) void document.exitFullscreen();
+  else void card.requestFullscreen?.();
+}
+document.addEventListener("fullscreenchange", () => {
+  $("x-full").classList.toggle("active", !!document.fullscreenElement);
+  window.setTimeout(() => (follow ? followEnd(0.8, 0.7) : requestRender()), 60);
+});
 
 // ---------------------------------------------------------------------------------------
 // Synthetic streams
@@ -269,6 +505,7 @@ function startStream() {
   engine.clear();
   seriesOffset = 0;
   view.start = 0;
+  setFollow(true);
   playData = preset.make(2000, Math.floor(Math.random() * 1e9));
   playIdx = 0;
   $("draw-hint").classList.add("hidden");
@@ -303,6 +540,7 @@ function requestRender() {
   requestAnimationFrame(() => {
     renderQueued = false;
     renderMain();
+    renderOverview();
     const now = performance.now();
     if (now - lastTableRender > 150) {
       lastTableRender = now;
@@ -320,20 +558,7 @@ function renderMain() {
   ctx.fillStyle = plotBg;
   ctx.fillRect(0, 0, w, h);
   const X = (step: number) => (step - view.start) * view.pxPerStep;
-  const Y = (v: number) => h - ((v - view.yMin) / (view.yMax - view.yMin)) * h;
   const S = (i: number) => X(i + seriesOffset); // series index to x
-
-  ctx.strokeStyle = grid;
-  ctx.lineWidth = 1;
-  for (let v = 0; v <= 100; v += 20) {
-    ctx.beginPath();
-    ctx.moveTo(0, Y(v));
-    ctx.lineTo(w, Y(v));
-    ctx.stroke();
-  }
-  ctx.fillStyle = withAlpha(muted.startsWith("#") ? muted : "#8e8e93", 0.7);
-  ctx.font = FONT;
-  for (let v = 20; v < 100; v += 20) ctx.fillText(String(v), 6, Y(v) - 4);
 
   const n = engine.series.length;
   const first = Math.max(0, Math.floor(view.start - seriesOffset) - 1);
@@ -342,13 +567,103 @@ function renderMain() {
   // Past band: the interval the focused method issued `histLead` steps ahead, drawn at the
   // time it was about, with misses marked. One method at a time; pick it with the legend chips.
   const fid = engine.settings.enabled[focusId] || focusId === NATIVE_ID ? focusId : NATIVE_ID;
-  const misses: [number, number][] = [];
   const k = Math.min(histLead, engine.settings.evalLeads);
-  if (k > 0) {
+  const past = k > 0 ? engine.pastBand(fid, k, first, last) : [];
+
+  // Latest forecast: conformal intervals over the calibrated leads; a band stops early at a
+  // lead that has no threshold yet (lead k is first scored k steps after its first forecast).
+  const lo = engine.latestOrigin();
+  const f = engine.forecasts.get(lo);
+  const bands = new Map<string, [number, number][]>();
+  let H = 0;
+  if (f) {
+    const K = Math.min(f.horizon, engine.settings.evalLeads);
+    let reach = 0;
+    for (const id of engine.activeSpecs.map((m) => m.id).filter((id) => showAll || id === fid)) {
+      const ivs: [number, number][] = [];
+      for (let j = 0; j < K; j++) {
+        const iv = engine.interval(f, j, id);
+        if (!iv) break;
+        ivs.push(iv);
+      }
+      if (ivs.length) bands.set(id, ivs);
+      reach = Math.max(reach, ivs.length);
+    }
+    // Aligned modes draw the native forecast exactly as far as the conformal bands reach,
+    // so both always end at the same lead (falling back to the calibrated leads while warming up).
+    H = align === "full" ? f.horizon : reach || K;
+  }
+  const Q = f ? f.levels.length : 0;
+
+  // Y range: fitted to what is on screen unless the user zoomed or panned (or is drawing,
+  // when the axis must not move under the pen).
+  if (yMode !== "manual" && !drawing) {
+    if (yMode === "fixed" || n === 0) [view.yMin, view.yMax] = FIXED_RANGE;
+    else {
+      const e = new Extent();
+      for (let i = first; i <= last; i++) e.add(engine.series[i]);
+      // Only forecast leads that are on screen count, so a wide latest forecast does not
+      // squash the history while you look at an earlier stretch.
+      const onScreen = (j: number) => {
+        const x = S(lo + 1 + j);
+        return x >= 0 && x <= w;
+      };
+      if (f) for (let j = 0; j < H; j++) if (onScreen(j)) e.add(f.median[j]);
+      if (yMode === "bands") {
+        // Never narrower than the 0-100 canvas, so drawing keeps a stable frame.
+        e.add(FIXED_RANGE[0]);
+        e.add(FIXED_RANGE[1]);
+        for (const [, l, u] of past) (e.add(l), e.add(u));
+        if (f)
+          for (let j = 0; j < H; j++) {
+            if (!onScreen(j)) continue;
+            e.add(f.quantiles[j * Q + 2]);
+            e.add(f.quantiles[j * Q + Q - 3]);
+            e.add(f.lo[j]);
+            e.add(f.hi[j]);
+          }
+        for (const ivs of bands.values()) ivs.forEach(([l, u], j) => onScreen(j) && (e.add(l), e.add(u)));
+      }
+      [view.yMin, view.yMax] = fitRange(e.lo, e.hi);
+    }
+  }
+  const Y = (v: number) => h - ((v - view.yMin) / (view.yMax - view.yMin)) * h;
+
+  ctx.strokeStyle = grid;
+  ctx.lineWidth = 1;
+  ctx.font = FONT;
+  const labelCol = withAlpha(muted.startsWith("#") ? muted : "#8e8e93", 0.7);
+  const ticks = niceTicks(view.yMin, view.yMax, Math.max(3, Math.round(h / 90)));
+  const step = ticks.length > 1 ? ticks[1] - ticks[0] : 1;
+  const digits = Math.max(0, -Math.floor(Math.log10(step) + 1e-9));
+  for (const v of ticks) {
+    ctx.beginPath();
+    ctx.moveTo(0, Y(v));
+    ctx.lineTo(w, Y(v));
+    ctx.stroke();
+  }
+  ctx.fillStyle = labelCol;
+  for (const v of ticks) {
+    const y = Y(v);
+    if (y > 14 && y < h - 2) ctx.fillText(v.toFixed(digits), 6, y - 4);
+  }
+
+  // Edge markers for anything clipped by the y range: a thin strip on the edge, in the
+  // band's colour, so a band running off the chart is never silently cut.
+  const EDGE = 3;
+  const clipped: [number, number, string, boolean][] = []; // x, width, colour, top?
+  const markClip = (x: number, wd: number, l: number, u: number, col: string) => {
+    if (u > view.yMax) clipped.push([x, wd, col, true]);
+    if (l < view.yMin) clipped.push([x, wd, col, false]);
+  };
+
+  const misses: [number, number][] = [];
+  if (past.length) {
     ctx.fillStyle = withAlpha(COLORS[fid], 0.16);
-    for (const [t, lo, hi, missed] of engine.pastBand(fid, k, first, last)) {
+    for (const [t, l, u, missed] of past) {
       const x = S(t);
-      ctx.fillRect(x - view.pxPerStep / 2, Y(hi), view.pxPerStep, Math.max(1, Y(lo) - Y(hi)));
+      ctx.fillRect(x - view.pxPerStep / 2, Y(u), view.pxPerStep, Math.max(1, Y(l) - Y(u)));
+      markClip(x - view.pxPerStep / 2, view.pxPerStep, l, u, COLORS[fid]);
       if (missed) misses.push([x, Y(engine.series[t])]);
     }
   }
@@ -367,20 +682,15 @@ function renderMain() {
     ctx.fill();
   }
 
-  // Latest forecast fan.
-  const lo = engine.latestOrigin();
-  const f = engine.forecasts.get(lo);
   if (f) {
-    // With "cut", the native forecast is drawn only as far as the conformal bands reach.
-    const H = align === "cut" ? Math.min(f.horizon, engine.settings.evalLeads) : f.horizon;
-    const Q = f.levels.length;
-    const xAt = (k: number) => S(lo + 1 + k);
+    const xAt = (j: number) => S(lo + 1 + j);
+    const colW = Math.max(2, view.pxPerStep);
     // Native fan: 10-90% shaded, the alpha band dashed.
     const band = (loIdx: number, hiIdx: number, a: number) => {
       ctx.fillStyle = withAlpha(NATIVE_COLOR, a);
       ctx.beginPath();
-      for (let k = 0; k < H; k++) ctx.lineTo(xAt(k), Y(f.quantiles[k * Q + hiIdx]));
-      for (let k = H - 1; k >= 0; k--) ctx.lineTo(xAt(k), Y(f.quantiles[k * Q + loIdx]));
+      for (let j = 0; j < H; j++) ctx.lineTo(xAt(j), Y(f.quantiles[j * Q + hiIdx]));
+      for (let j = H - 1; j >= 0; j--) ctx.lineTo(xAt(j), Y(f.quantiles[j * Q + loIdx]));
       ctx.closePath();
       ctx.fill();
     };
@@ -390,36 +700,28 @@ function renderMain() {
     ctx.setLineDash([3, 3]);
     for (const arr of [f.lo, f.hi]) {
       ctx.beginPath();
-      for (let k = 0; k < H; k++) ctx.lineTo(xAt(k), Y(arr[k]));
+      for (let j = 0; j < H; j++) ctx.lineTo(xAt(j), Y(arr[j]));
       ctx.stroke();
     }
     ctx.setLineDash([]);
+    for (let j = 0; j < H; j++) markClip(xAt(j) - colW / 2, colW, f.lo[j], f.hi[j], NATIVE_COLOR);
     ctx.strokeStyle = ink;
     ctx.lineWidth = 1.25;
     ctx.setLineDash([5, 4]);
     ctx.beginPath();
     ctx.moveTo(S(lo), Y(engine.series[lo]));
-    for (let k = 0; k < H; k++) ctx.lineTo(xAt(k), Y(f.median[k]));
+    for (let j = 0; j < H; j++) ctx.lineTo(xAt(j), Y(f.median[j]));
     ctx.stroke();
     ctx.setLineDash([]);
 
-    // Conformal bands over the calibrated leads.
-    const K = Math.min(H, engine.settings.evalLeads);
-    const ids = engine.activeSpecs.map((m) => m.id).filter((id) => showAll || id === fid);
-    for (const id of ids) {
-      const ivs: [number, number][] = [];
-      for (let k = 0; k < K; k++) {
-        const iv = engine.interval(f, k, id);
-        if (!iv) break;
-        ivs.push(iv);
-      }
-      if (!ivs.length) continue;
+    // Conformal bands.
+    for (const [id, ivs] of bands) {
       const col = COLORS[id];
       if (id === fid) {
         ctx.fillStyle = withAlpha(col, 0.14);
         ctx.beginPath();
-        ivs.forEach((iv, k) => ctx.lineTo(xAt(k), Y(iv[1])));
-        for (let k = ivs.length - 1; k >= 0; k--) ctx.lineTo(xAt(k), Y(ivs[k][0]));
+        ivs.forEach((iv, j) => ctx.lineTo(xAt(j), Y(iv[1])));
+        for (let j = ivs.length - 1; j >= 0; j--) ctx.lineTo(xAt(j), Y(ivs[j][0]));
         ctx.closePath();
         ctx.fill();
       }
@@ -427,9 +729,10 @@ function renderMain() {
       ctx.lineWidth = id === fid ? 1.75 : 1;
       for (const side of [0, 1] as const) {
         ctx.beginPath();
-        ivs.forEach((iv, k) => ctx.lineTo(xAt(k), Y(iv[side])));
+        ivs.forEach((iv, j) => ctx.lineTo(xAt(j), Y(iv[side])));
         ctx.stroke();
       }
+      if (id === fid || showAll) ivs.forEach(([l, u], j) => markClip(xAt(j) - colW / 2, colW, l, u, col));
     }
     ctx.strokeStyle = withAlpha("#8e8e93", 0.35);
     ctx.setLineDash([2, 4]);
@@ -438,6 +741,19 @@ function renderMain() {
     ctx.lineTo(S(lo) + 0.5, h);
     ctx.stroke();
     ctx.setLineDash([]);
+  }
+
+  // Clipped edges last, so they sit on top. The focused method is drawn after the rest.
+  clipped.sort((a, b) => Number(a[2] === COLORS[fid]) - Number(b[2] === COLORS[fid]));
+  for (const [x, wd, col, top] of clipped) {
+    ctx.fillStyle = col;
+    ctx.fillRect(x, top ? 0 : h - EDGE, wd, EDGE);
+  }
+  const nTop = clipped.some((c) => c[3]), nBot = clipped.some((c) => !c[3]);
+  if (nTop || nBot) {
+    ctx.fillStyle = labelCol;
+    const note = "Some intervals run past the axis. Choose “Y: fit bands”, or scroll on the axis to zoom.";
+    if (yMode !== "bands" && w > 520) ctx.fillText(note, w - ctx.measureText(note).width - 10, h - 10);
   }
 }
 
@@ -786,6 +1102,7 @@ function bindControls() {
     engine.clear();
     seriesOffset = 0;
     view.start = 0;
+    setFollow(true);
     playIdx = playData.length;
     $("draw-hint").classList.remove("hidden");
     requestRender();
@@ -826,12 +1143,28 @@ function bindControls() {
     resetForecasts();
     applyAlign();
   });
+  const yModeSel = $<HTMLSelectElement>("y-mode");
+  yModeSel.value = yMode;
+  yModeSel.addEventListener("change", () => setYMode(yModeSel.value as YMode));
+  $("y-in").addEventListener("click", () => zoomY(1 / 1.5));
+  $("x-in").addEventListener("click", () => zoomX(1 / 1.5));
+  $("x-out").addEventListener("click", () => zoomX(1.5));
+  $("x-fit").addEventListener("click", fitAll);
+  $("x-latest").addEventListener("click", goLatest);
+  $("x-full").addEventListener("click", toggleFullscreen);
+  document.addEventListener("keydown", (e) => {
+    const t = e.target as HTMLElement;
+    if (t && (t.tagName === "INPUT" || t.tagName === "SELECT" || t.tagName === "TEXTAREA")) return;
+    if (e.key === "f" && !e.metaKey && !e.ctrlKey) toggleFullscreen();
+  });
+  $("y-out").addEventListener("click", () => zoomY(1.5));
+
   const alignSel = $<HTMLSelectElement>("align");
   alignSel.value = align;
   alignSel.addEventListener("change", () => {
     align = alignSel.value as Align;
     try {
-      localStorage.setItem("ctimestral-align", align);
+      localStorage.setItem("ctimestral-align-v2", align);
     } catch {
       // ignore
     }

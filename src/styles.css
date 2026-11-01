@@ -267,3 +267,21 @@ table.rank tr.tied td:first-child { color: var(--muted); }
 .legend-tail { display: inline-flex; align-items: center; gap: 12px; margin-left: auto; }
 .legend-tail .legend-note { margin-left: 0; }
 .legend-tail select { font-size: 12px; padding-top: 3px; padding-bottom: 3px; }
+
+/* Y-axis controls, floating top-right on the main chart. */
+.yctl { position: absolute; top: 8px; right: 8px; display: inline-flex; align-items: center; gap: 2px; padding: 2px; border-radius: 10px; background: color-mix(in srgb, var(--plot-bg) 85%, transparent); backdrop-filter: blur(6px); }
+.yctl select { font-size: 12px; padding-top: 3px; padding-bottom: 3px; }
+.yctl button.icon { width: 26px; height: 26px; font-size: 15px; line-height: 1; }
+.yctl .ctl-sep { width: 1px; height: 16px; background: var(--line-strong); margin: 0 3px; }
+.yctl button.active, .nav-btns button.active { color: var(--accent); }
+
+/* Overview strip and time navigation under the main chart. */
+.nav-row { display: flex; align-items: center; gap: 8px; margin: 8px 0 0; }
+#overview-canvas { flex: 1; min-width: 0; height: 40px; display: block; border-radius: 8px; background: var(--plot-bg); touch-action: none; cursor: grab; }
+.nav-btns { display: inline-flex; align-items: center; gap: 2px; }
+.nav-btns button.icon { width: 28px; height: 28px; font-size: 15px; }
+.nav-btns .small-btn { font-size: 12px; padding: 4px 9px; border-radius: 8px; }
+
+/* Full screen: the chart card fills the screen and the canvas takes the spare height. */
+.plot-card:fullscreen { background: var(--bg, #f5f5f7); padding: 20px; overflow: auto; }
+.plot-card:fullscreen #main-canvas { height: calc(100vh - 170px); }
