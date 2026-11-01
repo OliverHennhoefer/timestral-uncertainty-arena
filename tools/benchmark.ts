@@ -148,14 +148,17 @@ export async function main(argv: string[]): Promise<void> {
   const path = join(outDir, `${run}.json`);
   if (only && existsSync(path)) {
     const prev = JSON.parse(readFileSync(path, "utf8"));
-    if (prev.schema === result.schema && JSON.stringify(prev.config) === JSON.stringify(result.config) && prev.model?.id === result.model.id) {
+    // Kept datasets must have been scored with the same settings, model and methods
+    // (ids and default parameters); otherwise every dataset is from this run only.
+    const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+    if (prev.schema === result.schema && same(prev.config, result.config) && prev.model?.id === result.model.id && same(prev.methods, result.methods)) {
       const fresh = new Map(result.datasets.map((x) => [x.id, x]));
       const order = benchDatasets().map((x) => x.id);
       const merged = [...prev.datasets.filter((x: { id: string }) => !fresh.has(x.id) && known.has(x.id)), ...result.datasets];
       merged.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
       result.datasets = merged;
     } else {
-      console.error("existing result has other settings or another model; replacing it");
+      console.error("existing result has other settings, another model or other method definitions; replacing it with only the datasets run now");
     }
   }
   mkdirSync(dirname(path), { recursive: true });

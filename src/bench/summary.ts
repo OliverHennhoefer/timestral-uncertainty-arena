@@ -116,6 +116,9 @@ export function findings(result: BenchResult): Findings {
   const agg = aggregate(ds, ids).filter((a) => a.datasets > 0).sort(byMeanRank);
   const native = agg.find((a) => a.id === NATIVE);
   const methods = agg.filter((a) => a.id !== NATIVE);
+  if (!agg.length) {
+    return { findings: [`No evaluated pairs: the series are too short for warm-up ${result.config.warmup} at leads 1–${result.config.evalLeads}, so there is nothing to rank.`], caveats };
+  }
   const modelName = result.model.id === "naive" ? "the naive baseline" : result.model.id.replace(/^.*\//, "");
 
   // 1. Who ranks best overall.
@@ -179,7 +182,7 @@ export function findings(result: BenchResult): Findings {
     const parts = groups.map((g) => {
       const sub = ds.filter((d) => d.group === g);
       const a = aggregate(sub, ids).filter((x) => x.datasets > 0).sort(byMeanRank)[0];
-      return `${g.toLowerCase()} (${sub.length}): ${name(a.id)}, mean rank ${a.meanRank.toFixed(1)}`;
+      return a ? `${g.toLowerCase()} (${sub.length}): ${name(a.id)}, mean rank ${a.meanRank.toFixed(1)}` : `${g.toLowerCase()} (${sub.length}): no evaluated pairs`;
     });
     out.push(`Best mean rank by group: ${parts.join("; ")}.`);
   }

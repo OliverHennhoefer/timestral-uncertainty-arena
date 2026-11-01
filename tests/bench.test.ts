@@ -40,6 +40,13 @@ describe("benchmark", () => {
     expect(f.caveats.join(" ")).toContain("naive baseline");
   });
 
+  it("summarises a run with no evaluated pairs without throwing", async () => {
+    const res = await runBenchmark({ run: "t", model: { backend: "naive", id: "naive", label: "naive" }, forecast, only: ["sine", "nile"], config: { length: 10, bootstrap: 10 } });
+    expect(res.datasets.every((d) => d.pairs === 0)).toBe(true);
+    expect(findings(res).findings[0]).toContain("No evaluated pairs");
+    expect(toCsv(res).trim().split("\n").length).toBeGreaterThan(1);
+  });
+
   it("committed results are readable and cover the current registries", () => {
     const dir = new URL("../benchmarks/results/", import.meta.url);
     const files = readdirSync(dir).filter((f) => f.endsWith(".json"));
