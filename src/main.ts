@@ -21,6 +21,21 @@ let cachedRepos = new Set<string>();
 const view = { start: 0, pxPerStep: 2, yMin: 0, yMax: 100 };
 let seriesOffset = 0; // canvas step of series[0]
 let horizon = 64;
+/**
+ * How the native forecast and the conformal bands line up in time:
+ * "full" draws the whole model horizon while conformal stops at the calibrated leads,
+ * "calibrate" sets the calibrated leads to the horizon so conformal covers every lead,
+ * "cut" trims the drawn native forecast to the calibrated leads.
+ */
+type Align = "full" | "calibrate" | "cut";
+let align: Align = (() => {
+  try {
+    const v = localStorage.getItem("ctimestral-align");
+    return v === "calibrate" || v === "cut" ? v : "full";
+  } catch {
+    return "full";
+  }
+})();
 let maxContext = 256;
 let symmetric = true;
 let clip = true;
@@ -353,7 +368,8 @@ function renderMain() {
   const lo = engine.latestOrigin();
   const f = engine.forecasts.get(lo);
   if (f) {
-    const H = f.horizon;
+    // With "cut", the native forecast is drawn only as far as the conformal bands reach.
+    const H = align === "cut" ? Math.min(f.horizon, engine.settings.evalLeads) : f.horizon;
     const Q = f.levels.length;
     const xAt = (k: number) => S(lo + 1 + k);
     // Native fan: 10-90% shaded, the alpha band dashed.
@@ -480,6 +496,43 @@ function uncertainty(): Map<string, Uncertainty> {
     uncTimer = window.setTimeout(() => { uncTimer = 0; renderTable(); }, 1050);
   }
   return uncCache.value;
+}
+
+let leadsBeforeCalibrate: number | null = null;
+
+/** Apply the horizon-alignment choice: tie the calibrated leads to the horizon, or not. */
+function applyAlign() {
+  const el = $<HTMLInputElement>("eval-leads");
+  const hint = $("align-hint");
+  if (align === "calibrate") {
+    if (engine.settings.evalLeads !== horizon) {
+      if (leadsBeforeCalibrate === null) leadsBeforeCalibrate = engine.settings.evalLeads;
+      applySettings({ evalLeads: horizon });
+      renderLeadOptions();
+    }
+    el.value = String(horizon);
+    el.disabled = true;
+    hint.textContent = `Every lead 1–${horizon} gets its own calibration. Costs about ${Math.round(horizon / 16)}× the work of 16 leads; lead k is scored only k steps later and needs its own warm-up, and the pooled metrics now average over all ${horizon} leads.`;
+  } else {
+    // Leaving "calibrate" restores the calibrated leads the user had before.
+    if (leadsBeforeCalibrate !== null) {
+      const prev = leadsBeforeCalibrate;
+      leadsBeforeCalibrate = null;
+      if (prev !== engine.settings.evalLeads) {
+        applySettings({ evalLeads: prev });
+        renderLeadOptions();
+      }
+    }
+    el.disabled = false;
+    el.value = String(engine.settings.evalLeads);
+    hint.textContent =
+      align === "cut"
+        ? `The native forecast is drawn only for leads 1–${Math.min(horizon, engine.settings.evalLeads)}, matching the conformal bands.`
+        : engine.settings.evalLeads < horizon
+          ? `Native draws all ${horizon} steps; conformal bands stop at lead ${engine.settings.evalLeads}.`
+          : "";
+  }
+  requestRender();
 }
 
 function renderLeadOptions() {
@@ -747,6 +800,18 @@ function bindControls() {
   $<HTMLSelectElement>("horizon").addEventListener("change", (e) => {
     horizon = Number((e.target as HTMLSelectElement).value);
     resetForecasts();
+    applyAlign();
+  });
+  const alignSel = $<HTMLSelectElement>("align");
+  alignSel.value = align;
+  alignSel.addEventListener("change", () => {
+    align = alignSel.value as Align;
+    try {
+      localStorage.setItem("ctimestral-align", align);
+    } catch {
+      // ignore
+    }
+    applyAlign();
   });
   $<HTMLInputElement>("max-context").addEventListener("change", (e) => {
     maxContext = Math.max(32, Number((e.target as HTMLInputElement).value) || 256);
@@ -782,7 +847,11 @@ function bindControls() {
     });
   };
   num("eval-leads", "evalLeads");
-  $("eval-leads").addEventListener("change", renderLeadOptions);
+  $("eval-leads").addEventListener("change", () => {
+    renderLeadOptions();
+    applyAlign();
+  });
+  applyAlign();
   num("window", "window");
   num("warmup", "warmup");
   num("rolling", "rolling");

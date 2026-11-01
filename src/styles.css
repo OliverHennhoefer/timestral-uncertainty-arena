@@ -126,7 +126,7 @@ button.primary:hover { opacity: 0.88; background: var(--accent); }
 button.icon { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; padding: 0; background: transparent; color: var(--muted); border-radius: 8px; }
 button.icon:hover { color: var(--ink); background: var(--fill); }
 button.wide { width: 100%; }
-button:disabled { opacity: 0.4; cursor: default; }
+button:disabled, input:disabled { opacity: 0.4; cursor: default; }
 select:focus-visible, input:focus-visible, button:focus-visible { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 35%, transparent); }
 input[type="range"] { padding: 0; background: transparent; accent-color: var(--accent); }
 input[type="number"] { width: 100%; font-variant-numeric: tabular-nums; }
