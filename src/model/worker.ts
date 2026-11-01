@@ -1,11 +1,13 @@
 /// <reference lib="webworker" />
 /**
- * Web worker hosting the TypeScript Timestral port. Downloads `config.json` and
+ * Web worker hosting the TypeScript model ports (Timestral and Chronos-Bolt; the checkpoint's
+ * `config.json` says which). Downloads `config.json` and
  * `model.safetensors` straight from the Hugging Face Hub (cached in Cache Storage so later
  * visits work offline), or takes user-provided files, and answers forecast requests.
  */
 
-import { CACHE_NAME, fileUrl } from "./registry";
+import { ChronosBoltForecaster, ChronosBoltModel, isChronosBoltConfig } from "./chronosBolt";
+import { CACHE_NAME, type ModelFamily, fileUrl } from "./registry";
 import { TimestralForecaster, TimestralModel } from "./timestral";
 
 export type WorkerIn =
@@ -17,13 +19,13 @@ export type WorkerIn =
 
 export type WorkerOut =
   | { type: "progress"; file: string; loaded: number; total: number }
-  | { type: "ready"; label: string; numParams: number; config: Record<string, unknown> }
+  | { type: "ready"; label: string; family: ModelFamily; numParams: number; config: Record<string, unknown> }
   | { type: "result"; id: number; quantiles: Float32Array; levels: number[]; horizon: number; ms: number }
   | { type: "error"; id?: number; message: string }
   | { type: "cached"; repos: string[] };
 
 const ctx = self as unknown as DedicatedWorkerGlobalScope;
-let forecaster: TimestralForecaster | null = null;
+let forecaster: TimestralForecaster | ChronosBoltForecaster | null = null;
 
 const post = (m: WorkerOut, transfer: Transferable[] = []) => ctx.postMessage(m, transfer);
 
@@ -94,9 +96,15 @@ async function listCached() {
 }
 
 function install(label: string, config: Record<string, unknown>, weights: ArrayBuffer) {
-  const model = TimestralModel.fromBuffers(config, weights);
-  forecaster = new TimestralForecaster(model);
-  post({ type: "ready", label, numParams: model.numParams, config });
+  if (isChronosBoltConfig(config)) {
+    const model = ChronosBoltModel.fromBuffers(config, weights);
+    forecaster = new ChronosBoltForecaster(model);
+    post({ type: "ready", label, family: "chronos-bolt", numParams: model.numParams, config });
+  } else {
+    const model = TimestralModel.fromBuffers(config, weights);
+    forecaster = new TimestralForecaster(model);
+    post({ type: "ready", label, family: "timestral", numParams: model.numParams, config });
+  }
 }
 
 ctx.onmessage = async (ev: MessageEvent<WorkerIn>) => {
@@ -118,11 +126,16 @@ ctx.onmessage = async (ev: MessageEvent<WorkerIn>) => {
       case "forecast": {
         if (!forecaster) throw new Error("no model loaded");
         const t0 = performance.now();
-        const fc = forecaster.forecast(msg.context, msg.horizon, {
-          symmetricAveraging: msg.symmetric,
-          clipNonnegative: msg.clip,
-          maxContext: msg.maxContext,
-        });
+        // Chronos-Bolt runs as the official pipeline does: no symmetric averaging, and its
+        // 0.1-0.9 quantiles are mapped to the shared grid (and clipped) by the backend.
+        const fc =
+          forecaster instanceof ChronosBoltForecaster
+            ? forecaster.forecast(msg.context, msg.horizon, { maxContext: msg.maxContext })
+            : forecaster.forecast(msg.context, msg.horizon, {
+                symmetricAveraging: msg.symmetric,
+                clipNonnegative: msg.clip,
+                maxContext: msg.maxContext,
+              });
         post({ type: "result", id: msg.id, quantiles: fc.quantiles, levels: fc.levels, horizon: fc.horizon, ms: performance.now() - t0 }, [fc.quantiles.buffer]);
         break;
       }

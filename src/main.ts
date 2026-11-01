@@ -5,7 +5,7 @@ import { Engine, NATIVE_COLOR, NATIVE_ID, type RankBy, type ScoreType, type Sett
 import { CalibrationProbe, pitHistogram } from "./engine/calibration";
 import { type ReliabilityCurve, maxGap, pitChart, reliabilityChart } from "./ui/calibration";
 import { type Backend, BrowserBackend, NaiveBackend, ServerBackend } from "./model/backends";
-import { MODELS } from "./model/registry";
+import { FAMILY_NAMES, MODELS, type ModelFamily } from "./model/registry";
 import { DATASETS } from "./datasets";
 import { PRESETS as SYNTHETIC } from "./synthetic";
 import { FONT, cssVar, fitCanvas, lineChart, withAlpha } from "./ui/plot";
@@ -963,7 +963,7 @@ function renderLegend() {
   const chip = (id: string, name: string, tip: string) =>
     `<button class="chip${id === focusId ? " on" : ""}" data-id="${id}" title="${tip}"><span class="dot" style="background:${COLORS[id]}"></span>${name}</button>`;
   const chips = [
-    chip(NATIVE_ID, "Timestral", "Native quantiles: α band dashed, 10–90% shaded. Click to focus."),
+    chip(NATIVE_ID, backend.modelName, "Native quantiles: α band dashed, 10–90% shaded. Click to focus."),
     ...engine.activeSpecs.map((m) => chip(m.id, m.name, `${m.summary} Click to focus.`)),
   ];
   const el = $("legend");
@@ -983,7 +983,18 @@ function renderLegend() {
   el.querySelectorAll<HTMLButtonElement>(".chip").forEach((b) => b.addEventListener("click", () => setFocus(b.dataset.id!)));
 }
 
+/** Model family the browser panel lists, from the backend dropdown. */
+function browserFamily(): ModelFamily {
+  return $<HTMLSelectElement>("backend").value === "chronos" ? "chronos-bolt" : "timestral";
+}
+
 function setPill() {
+  // The native row is named after the model that produced it.
+  const native = backend.modelName;
+  if (NAMES[NATIVE_ID] !== `${native} native`) {
+    NAMES[NATIVE_ID] = `${native} native`;
+    renderLegend();
+  }
   const pill = $("backend-pill");
   pill.textContent = backend.label + (backend.ready ? "" : " (not ready)");
   pill.className = `pill ${!backend.ready ? "err" : inFlight ? "busy" : "ok"}`;
@@ -1040,7 +1051,9 @@ function renderMethods() {
 
 function renderModels() {
   const list = $("model-list");
-  list.innerHTML = MODELS.map(
+  const family = browserFamily();
+  $("bolt-note").classList.toggle("hidden", family !== "chronos-bolt");
+  list.innerHTML = MODELS.filter((m) => m.family === family).map(
     (m) => `<div class="model-row ${activeRepo === m.repo && backend.kind === "browser" && backend.ready ? "active" : ""}">
       <div class="info"><div class="title">${m.label} <span class="muted small">${m.params} · ~${m.approxMB} MB${cachedRepos.has(m.repo) ? " · cached" : ""}</span></div>
       <div class="note">${m.note}</div></div>
@@ -1154,23 +1167,27 @@ function bindControls() {
 
   const backendSel = $<HTMLSelectElement>("backend");
   backendSel.addEventListener("change", () => {
-    $("browser-panel").classList.toggle("hidden", backendSel.value !== "browser");
+    const inBrowser = backendSel.value === "browser" || backendSel.value === "chronos";
+    $("browser-panel").classList.toggle("hidden", !inBrowser);
     $("server-panel").classList.toggle("hidden", backendSel.value !== "server");
     if (backendSel.value === "naive") {
       backend = new NaiveBackend();
       setPill();
       resetForecasts();
-    } else if (backendSel.value === "browser") {
+    } else if (inBrowser) {
       ensureBrowserBackend();
       renderModels();
-      if (browserBackend?.ready) {
+      // Reuse the loaded model only if it is the family picked; otherwise wait for a download.
+      if (browserBackend?.ready && browserBackend.family === browserFamily()) {
         backend = browserBackend;
         setPill();
         resetForecasts();
       }
     }
   });
-  $<HTMLSelectElement>("server-model").innerHTML = MODELS.map((m) => `<option value="${m.repo}">${m.label}</option>`).join("");
+  $<HTMLSelectElement>("server-model").innerHTML = (Object.keys(FAMILY_NAMES) as ModelFamily[])
+    .map((f) => `<optgroup label="${FAMILY_NAMES[f]}">${MODELS.filter((m) => m.family === f).map((m) => `<option value="${m.repo}">${m.label}</option>`).join("")}</optgroup>`)
+    .join("");
   $("btn-connect").addEventListener("click", connectServer);
   $<HTMLInputElement>("file-input").addEventListener("change", (e) => {
     const files = (e.target as HTMLInputElement).files;
