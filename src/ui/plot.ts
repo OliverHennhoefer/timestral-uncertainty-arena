@@ -14,6 +14,8 @@ export function fitCanvas(canvas: HTMLCanvasElement): { ctx: CanvasRenderingCont
   return { ctx, w, h };
 }
 
+export const FONT = '11px -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", system-ui, sans-serif';
+
 export function cssVar(name: string): string {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 }
@@ -39,10 +41,10 @@ export function lineChart(
   opts: { yMin?: number; yMax?: number; floor?: number; target?: number; format?: (v: number) => string } = {},
 ): void {
   const { ctx, w, h } = fitCanvas(canvas);
-  const pad = { l: 40, r: 8, t: 6, b: 18 };
+  const pad = { l: 36, r: 6, t: 6, b: 18 };
   ctx.clearRect(0, 0, w, h);
   const ink = cssVar("--muted"), grid = cssVar("--grid");
-  ctx.font = "11px system-ui, sans-serif";
+  ctx.font = FONT;
   if (xs.length < 2) {
     ctx.fillStyle = ink;
     ctx.fillText("waiting for evaluated forecasts…", pad.l, h / 2);
@@ -66,8 +68,8 @@ export function lineChart(
   ctx.fillStyle = ink;
   ctx.lineWidth = 1;
   const fmt = opts.format ?? ((v: number) => v.toFixed(2));
-  for (let i = 0; i <= 4; i++) {
-    const v = lo + ((hi - lo) * i) / 4;
+  for (let i = 0; i <= 3; i++) {
+    const v = lo + ((hi - lo) * i) / 3;
     ctx.beginPath();
     ctx.moveTo(pad.l, Y(v));
     ctx.lineTo(w - pad.r, Y(v));
@@ -78,8 +80,8 @@ export function lineChart(
   const lab = String(x1);
   ctx.fillText(lab, w - pad.r - ctx.measureText(lab).width, h - 4);
   if (opts.target !== undefined) {
-    ctx.strokeStyle = cssVar("--ink");
-    ctx.setLineDash([4, 4]);
+    ctx.strokeStyle = cssVar("--muted");
+    ctx.setLineDash([3, 4]);
     ctx.beginPath();
     ctx.moveTo(pad.l, Y(opts.target));
     ctx.lineTo(w - pad.r, Y(opts.target));
@@ -89,6 +91,7 @@ export function lineChart(
   for (const t of traces) {
     ctx.strokeStyle = t.color;
     ctx.lineWidth = t.width ?? 1.5;
+    ctx.lineJoin = "round";
     ctx.setLineDash(t.dash ?? []);
     ctx.beginPath();
     let started = false;

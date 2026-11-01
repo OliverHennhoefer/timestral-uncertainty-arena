@@ -266,7 +266,7 @@ export const METHODS: MethodSpec[] = [
   {
     id: "split",
     name: "Rolling split CP",
-    color: "#2f7ed8",
+    color: "#007AFF",
     reference: "Vovk et al. 2005; rolling calibration window",
     summary: "Empirical (1-α)(1+1/n) quantile of the last W scores. Valid under exchangeability, slow to react to shifts.",
     params: [],
@@ -275,7 +275,7 @@ export const METHODS: MethodSpec[] = [
   {
     id: "aci",
     name: "ACI",
-    color: "#e4572e",
+    color: "#FF9500",
     reference: "Gibbs & Candès, NeurIPS 2021",
     summary: "Adapts the working miscoverage level α_t ← α_t + γ(α − err_t). Long-run coverage holds for any sequence.",
     params: [{ key: "gamma", label: "γ step", min: 0.001, max: 0.2, step: 0.001, default: 0.01 }],
@@ -284,7 +284,7 @@ export const METHODS: MethodSpec[] = [
   {
     id: "dtaci",
     name: "DtACI",
-    color: "#8f2d56",
+    color: "#A2845E",
     reference: "Gibbs & Candès, JMLR 2024",
     summary: "Runs ACI over a grid of γ and reweights experts online, so the step size tunes itself.",
     params: [{ key: "interval", label: "Interval I", min: 10, max: 1000, step: 10, default: 100, help: "Local-regret interval that sets η and σ." }],
@@ -293,7 +293,7 @@ export const METHODS: MethodSpec[] = [
   {
     id: "agaci",
     name: "AgACI",
-    color: "#f4a259",
+    color: "#30B0C7",
     reference: "Zaffran et al., ICML 2022",
     summary: "Aggregates ACI experts with online expert aggregation on the pinball loss (EWA variant).",
     params: [],
@@ -302,7 +302,7 @@ export const METHODS: MethodSpec[] = [
   {
     id: "qt",
     name: "Quantile tracker",
-    color: "#43aa8b",
+    color: "#34C759",
     reference: "Angelopoulos, Candès & Tibshirani, NeurIPS 2023",
     summary: "Online gradient descent on the pinball loss of the threshold itself: q ← q + η(err − α).",
     params: [{ key: "lr", label: "Learning rate", min: 0.001, max: 0.5, step: 0.001, default: 0.05, help: "Step as a fraction of the recent score range." }],
@@ -311,7 +311,7 @@ export const METHODS: MethodSpec[] = [
   {
     id: "pid",
     name: "Conformal PID",
-    color: "#577590",
+    color: "#5856D6",
     reference: "Angelopoulos, Candès & Tibshirani, NeurIPS 2023",
     summary: "Quantile tracker plus a saturated integrator of past coverage errors (no scorecaster).",
     params: [
@@ -323,7 +323,7 @@ export const METHODS: MethodSpec[] = [
   {
     id: "nexcp",
     name: "NexCP",
-    color: "#9b5de5",
+    color: "#AF52DE",
     reference: "Barber, Candès, Ramdas & Tibshirani, Ann. Stat. 2023",
     summary: "Weighted split conformal with geometric weights ρ^age, robust to drift.",
     params: [{ key: "rho", label: "Decay ρ", min: 0.8, max: 0.9999, step: 0.0001, default: 0.99 }],
