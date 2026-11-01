@@ -368,7 +368,9 @@ function fitAll() {
 
 function goLatest() {
   setFollow(true);
-  followEnd(0, 0.75);
+  // Unconditional, so it also comes back from a view panned past the end of the series.
+  view.start = Math.max(0, Math.round(seriesOffset + engine.series.length - 0.75 * viewSteps()));
+  requestRender();
 }
 
 // Main chart: Ctrl/Alt + scroll (or a trackpad pinch) zooms time, Shift + scroll or a
@@ -600,7 +602,13 @@ function renderMain() {
     else {
       const e = new Extent();
       for (let i = first; i <= last; i++) e.add(engine.series[i]);
-      if (f) for (let j = 0; j < H; j++) e.add(f.median[j]);
+      // Only forecast leads that are on screen count, so a wide latest forecast does not
+      // squash the history while you look at an earlier stretch.
+      const onScreen = (j: number) => {
+        const x = S(lo + 1 + j);
+        return x >= 0 && x <= w;
+      };
+      if (f) for (let j = 0; j < H; j++) if (onScreen(j)) e.add(f.median[j]);
       if (yMode === "bands") {
         // Never narrower than the 0-100 canvas, so drawing keeps a stable frame.
         e.add(FIXED_RANGE[0]);
@@ -608,12 +616,13 @@ function renderMain() {
         for (const [, l, u] of past) (e.add(l), e.add(u));
         if (f)
           for (let j = 0; j < H; j++) {
+            if (!onScreen(j)) continue;
             e.add(f.quantiles[j * Q + 2]);
             e.add(f.quantiles[j * Q + Q - 3]);
             e.add(f.lo[j]);
             e.add(f.hi[j]);
           }
-        for (const ivs of bands.values()) for (const [l, u] of ivs) (e.add(l), e.add(u));
+        for (const ivs of bands.values()) ivs.forEach(([l, u], j) => onScreen(j) && (e.add(l), e.add(u)));
       }
       [view.yMin, view.yMax] = fitRange(e.lo, e.hi);
     }
