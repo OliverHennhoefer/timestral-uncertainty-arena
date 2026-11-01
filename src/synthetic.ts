@@ -3,6 +3,11 @@
 export interface Preset {
   id: string;
   label: string;
+  /** Dropdown group; synthetic presets leave it unset. */
+  group?: string;
+  /** Provenance shown as the option's tooltip. */
+  source?: string;
+  /** Up to `n` points; finite datasets may return fewer, and the stream ends with them. */
   make(n: number, seed: number): number[];
 }
 
