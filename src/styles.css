@@ -256,3 +256,8 @@ table.rank td.off { color: var(--danger); }
   .card { padding: 14px; }
   #main-canvas { height: 340px; }
 }
+
+.rank-controls { display: flex; gap: 8px; }
+.rank-controls select { font-size: 12px; padding-top: 4px; padding-bottom: 4px; }
+table.rank .pm { color: var(--muted); font-size: 11px; margin-left: 4px; display: inline-block; min-width: 3.6em; text-align: left; }
+table.rank tr.tied td:first-child { color: var(--muted); }

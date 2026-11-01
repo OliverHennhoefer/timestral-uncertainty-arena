@@ -76,7 +76,7 @@
               <label class="field">Calibrated leads <input id="eval-leads" type="number" min="1" max="128" value="16" /></label>
               <label class="field">Window W <input id="window" type="number" min="10" max="2000" value="100" /></label>
               <label class="field">Warm-up <input id="warmup" type="number" min="1" max="500" value="10" /></label>
-              <label class="field">Rolling R <input id="rolling" type="number" min="10" max="5000" value="200" /></label>
+              <label class="field" title="Window of the rolling curves, in time steps">Rolling R (steps) <input id="rolling" type="number" min="5" max="5000" value="100" /></label>
             </div>
           </details>
 
@@ -140,17 +140,31 @@
             </section>
           </div>
 
+          <div class="grid2">
+            <section class="card">
+              <h3>Coverage by lead <span class="muted small">all evaluated pairs</span></h3>
+              <canvas id="lead-cov-canvas" class="chart"></canvas>
+            </section>
+            <section class="card">
+              <h3>Width by lead</h3>
+              <canvas id="lead-width-canvas" class="chart"></canvas>
+            </section>
+          </div>
+
           <section class="card">
             <div class="row-between">
               <h3>Ranking</h3>
+              <div class="rank-controls">
+              <select id="rank-lead" title="Which forecast leads to score"></select>
               <select id="rank-by" title="Ranking criterion">
                 <option value="interval_score">By interval score</option>
                 <option value="validity_then_width">Valid, then narrowest</option>
                 <option value="rolling_gap">Closest rolling coverage</option>
               </select>
+              </div>
             </div>
             <div class="rank-wrap"><table class="rank" id="rank-table"></table></div>
-            <p class="footnote-sm">Same (origin, lead) pairs for every row. Score = width + (2/α) · miss distance. Click a row to focus it.</p>
+            <p class="footnote-sm">Same (origin, lead) pairs for every row. Score = width + (2/α) · miss distance. ± is a 95% block-bootstrap interval; rows sharing a rank can't be told apart. Click a row to focus it.</p>
           </section>
         </main>
       </div>

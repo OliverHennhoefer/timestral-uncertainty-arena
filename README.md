@@ -55,8 +55,8 @@ In the app, pick a backend:
 - **Streams.** Synthetic presets (seasonal, trend, volatility shift, level shifts, random walk, heavy tails, regime change) play point by point in lockstep with the model, so every origin gets a forecast.
 - **Online protocol.** A forecast at origin `o` predicts leads `k = 1..H`. When `y[o+k]` arrives it yields a nonconformity score at lead `k`, which updates that lead's methods (feedback is delayed by `k`). Thresholds are issued only from scores whose truth was known at the origin. Each lead has its own calibration stream.
 - **Scores.** CQR on the native quantiles, `max(lo − y, y − hi)` (default; the interval is `[lo − q, hi + q]`), absolute residual `|y − median|`, or the residual scaled by the native half-width.
-- **Metrics.** For the calibrated leads (default 1–16), after a warm-up, every method and the native interval are scored on the same pairs: cumulative and rolling coverage, mean width, and the interval (Winkler) score `width + (2/α)·miss distance`.
-- **Ranking.** By interval score (default), by "valid coverage first, then narrowest", or by rolling coverage closest to target.
+- **Metrics.** For the calibrated leads (default 1–16), after a warm-up, every method and the native interval are scored on the same (origin, lead) pairs: coverage, mean width, and the interval (Winkler) score `width + (2/α)·miss distance`. They are pooled over all leads and also kept per lead; the "by lead" charts show whether a method is calibrated at every lead rather than only on average. The rolling curves average over the last R **time steps** (each step scores up to one pair per lead).
+- **Ranking.** By interval score (default), by "valid coverage first, then narrowest", or by rolling coverage closest to target, pooled or at a single lead. Overlapping forecasts make pairs strongly dependent, so the ± values come from a moving-block bootstrap over arrivals (blocks of at least the number of scored leads, resampled jointly for all methods). In interval-score mode, rows whose paired 95% interval of the score difference contains 0 share a rank.
 
 ### Methods
 

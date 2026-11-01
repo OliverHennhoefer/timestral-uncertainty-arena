@@ -12,6 +12,7 @@
 
 import { METHODS, type MethodSpec, type OnlineMethod, defaultParams } from "../conformal/methods";
 import { ScoreHistory } from "../conformal/window";
+import { type ArrivalSeries, type Uncertainty, blockBootstrap, indistinguishable } from "./bootstrap";
 
 export type ScoreType = "cqr" | "abs" | "scaled";
 
@@ -22,6 +23,7 @@ export interface Settings {
   scoreType: ScoreType;
   window: number;
   warmup: number;
+  /** Rolling window for the live curves, in time steps (arrivals), not pairs. */
   rolling: number;
   enabled: Record<string, boolean>;
   params: Record<string, Record<string, number>>;
@@ -37,7 +39,7 @@ export function defaultSettings(): Settings {
     scoreType: "cqr",
     window: 100,
     warmup: 10,
-    rolling: 200,
+    rolling: 100,
     enabled: Object.fromEntries(METHODS.map((m) => [m.id, true])),
     params: Object.fromEntries(METHODS.map((m) => [m.id, defaultParams(m)])),
   };
@@ -65,10 +67,12 @@ export interface MethodMetrics {
   covered: number;
   widthSum: number;
   intervalScoreSum: number;
-  ringCovered: Uint8Array;
-  ringWidth: Float64Array;
-  ringPos: number;
-  ringFill: number;
+  /** Sums per arrival with evaluations (aligned with `Engine.traceT`), for rolling windows and the bootstrap. */
+  arr: { n: number[]; cov: number[]; width: number[]; is: number[] };
+  /** Per lead (index k - 1): one entry per evaluated pair, in arrival order. */
+  lead: { cov: number[]; width: number[]; is: number[] }[];
+  /** Running sums over the last `rolling` arrivals. */
+  roll: { n: number; cov: number; width: number };
   /** Rolling coverage / width after each arrival with evaluations. */
   covTrace: number[];
   widthTrace: number[];
@@ -130,10 +134,11 @@ export class Engine {
   }
 
   private newMetrics(id: string): MethodMetrics {
-    const R = this.settings.rolling;
     return {
       id, n: 0, covered: 0, widthSum: 0, intervalScoreSum: 0,
-      ringCovered: new Uint8Array(R), ringWidth: new Float64Array(R), ringPos: 0, ringFill: 0,
+      arr: { n: [], cov: [], width: [], is: [] },
+      lead: Array.from({ length: this.settings.evalLeads }, () => ({ cov: [], width: [], is: [] })),
+      roll: { n: 0, cov: 0, width: 0 },
       covTrace: [], widthTrace: [],
     };
   }
@@ -316,6 +321,8 @@ export class Engine {
     const { alpha } = this.settings;
     let evaluatedAny = false;
     const maxK = this.settings.evalLeads;
+    const ids = this.rowIds;
+    const acc = ids.map(() => ({ n: 0, cov: 0, width: 0, is: 0 }));
     for (let k = 1; k <= maxK; k++) {
       const f = this.forecasts.get(t - k);
       if (!f || k > f.horizon) continue;
@@ -325,38 +332,117 @@ export class Engine {
       const { history, methods } = this.lead(k);
       if (f.evaluated[j]) {
         evaluatedAny = true;
-        for (const id of this.rowIds) {
+        ids.forEach((id, i) => {
           const iv = this.interval(f, j, id);
           const m = this.metrics.get(id);
-          if (!iv || !m) continue;
+          if (!iv || !m) return;
           const [lo, hi] = iv;
           const width = Math.max(0, hi - lo);
           const cov = y >= lo && y <= hi ? 1 : 0;
+          const is = width + (2 / alpha) * Math.max(0, lo - y) + (2 / alpha) * Math.max(0, y - hi);
           m.n++;
           m.covered += cov;
           m.widthSum += width;
-          m.intervalScoreSum += width + (2 / alpha) * Math.max(0, lo - y) + (2 / alpha) * Math.max(0, y - hi);
-          m.ringCovered[m.ringPos] = cov;
-          m.ringWidth[m.ringPos] = width;
-          m.ringPos = (m.ringPos + 1) % m.ringCovered.length;
-          m.ringFill = Math.min(m.ringFill + 1, m.ringCovered.length);
-        }
+          m.intervalScoreSum += is;
+          const L = m.lead[j];
+          L.cov.push(cov);
+          L.width.push(width);
+          L.is.push(is);
+          const a = acc[i];
+          a.n++;
+          a.cov += cov;
+          a.width += width;
+          a.is += is;
+        });
       }
       for (const [, m] of methods) m.update(f.origin, s);
       history.push(s);
     }
     if (evaluatedAny) {
       this.traceT.push(t);
-      for (const id of this.rowIds) {
+      const R = this.settings.rolling;
+      ids.forEach((id, i) => {
         const m = this.metrics.get(id)!;
+        const a = acc[i];
+        m.arr.n.push(a.n);
+        m.arr.cov.push(a.cov);
+        m.arr.width.push(a.width);
+        m.arr.is.push(a.is);
+        m.roll.n += a.n;
+        m.roll.cov += a.cov;
+        m.roll.width += a.width;
+        const drop = m.arr.n.length - 1 - R;
+        if (drop >= 0) {
+          m.roll.n -= m.arr.n[drop];
+          m.roll.cov -= m.arr.cov[drop];
+          m.roll.width -= m.arr.width[drop];
+        }
         const r = rolling(m);
         m.covTrace.push(r.coverage);
         m.widthTrace.push(r.width);
-      }
+      });
     }
   }
 
-  table(): MetricsRow[] {
+  /** Coverage and mean width per lead (1..evalLeads), over all evaluated pairs. */
+  leadProfile(id: string): { coverage: number[]; width: number[] } {
+    const m = this.metrics.get(id);
+    const coverage: number[] = [], width: number[] = [];
+    for (const L of m?.lead ?? []) {
+      const n = L.cov.length;
+      let c = 0, w = 0;
+      for (let i = 0; i < n; i++) { c += L.cov[i]; w += L.width[i]; }
+      coverage.push(n ? c / n : NaN);
+      width.push(n ? w / n : NaN);
+    }
+    return { coverage, width };
+  }
+
+  /**
+   * Block-bootstrap uncertainty of every row (pooled, or at one lead). Blocks span at least
+   * `evalLeads` arrivals, the range over which overlapping forecasts share errors.
+   */
+  uncertainty(lead?: number, B = 300): Map<string, Uncertainty> {
+    const series = new Map<string, ArrivalSeries>();
+    let T = 0;
+    for (const id of this.rowIds) {
+      const m = this.metrics.get(id)!;
+      if (lead === undefined) {
+        series.set(id, m.arr);
+        T = Math.max(T, m.arr.n.length);
+      } else {
+        const L = m.lead[lead - 1];
+        if (!L) continue;
+        series.set(id, { n: new Array(L.cov.length).fill(1), cov: L.cov, width: L.width, is: L.is });
+        T = Math.max(T, L.cov.length);
+      }
+    }
+    const block = Math.max(this.settings.evalLeads, Math.ceil(Math.cbrt(T) * 2));
+    return blockBootstrap(series, T, block, B);
+  }
+
+  /**
+   * Metrics table. Without `lead`, pooled over all scored leads; with `lead` (1-based),
+   * only the pairs at that lead (rolling over its last `rolling` pairs, one per arrival).
+   */
+  table(lead?: number): MetricsRow[] {
+    if (lead !== undefined) {
+      const R = this.settings.rolling;
+      return this.rowIds.map((id) => {
+        const L = this.metrics.get(id)!.lead[lead - 1];
+        const n = L?.cov.length ?? 0;
+        const sum = (a: number[], from = 0) => { let v = 0; for (let i = from; i < a.length; i++) v += a[i]; return v; };
+        const from = Math.max(0, n - R), nr = n - from;
+        return {
+          id, n,
+          coverage: n ? sum(L.cov) / n : NaN,
+          rollingCoverage: nr ? sum(L.cov, from) / nr : NaN,
+          meanWidth: n ? sum(L.width) / n : NaN,
+          rollingWidth: nr ? sum(L.width, from) / nr : NaN,
+          intervalScore: n ? sum(L.is) / n : NaN,
+        };
+      });
+    }
     return this.rowIds.map((id) => {
       const m = this.metrics.get(id)!;
       const r = rolling(m);
@@ -374,13 +460,8 @@ export class Engine {
 }
 
 function rolling(m: MethodMetrics): { coverage: number; width: number } {
-  if (m.ringFill === 0) return { coverage: NaN, width: NaN };
-  let c = 0, w = 0;
-  for (let i = 0; i < m.ringFill; i++) {
-    c += m.ringCovered[i];
-    w += m.ringWidth[i];
-  }
-  return { coverage: c / m.ringFill, width: w / m.ringFill };
+  if (m.roll.n <= 0) return { coverage: NaN, width: NaN };
+  return { coverage: m.roll.cov / m.roll.n, width: m.roll.width / m.roll.n };
 }
 
 export type RankBy = "interval_score" | "validity_then_width" | "rolling_gap";
@@ -389,12 +470,20 @@ export interface RankedRow extends MetricsRow {
   rank: number;
   gap: number;
   valid: boolean;
+  /** True when this row shares its rank with the row above (not distinguishable). */
+  tied?: boolean;
 }
 
 /** Rank methods (including the native interval) by the chosen criterion. */
-export function rankRows(rows: MetricsRow[], alpha: number, by: RankBy, tolerance = 0.02): RankedRow[] {
+export function rankRows(
+  rows: MetricsRow[],
+  alpha: number,
+  by: RankBy,
+  tolerance = 0.02,
+  unc?: Map<string, Uncertainty>,
+): RankedRow[] {
   const target = 1 - alpha;
-  const ext = rows.map((r) => ({
+  const ext: RankedRow[] = rows.map((r) => ({
     ...r,
     rank: 0,
     gap: Math.abs(r.coverage - target),
@@ -420,5 +509,20 @@ export function rankRows(rows: MetricsRow[], alpha: number, by: RankBy, toleranc
     return 0;
   });
   sorted.forEach((r, i) => (r.rank = i + 1));
+  // With bootstrap replicates, rows whose interval score cannot be told apart from the
+  // head of their group share its rank (95% paired block-bootstrap interval contains 0).
+  if (unc && by === "interval_score") {
+    let head = sorted[0];
+    for (let i = 1; i < sorted.length; i++) {
+      const r = sorted[i];
+      const a = unc.get(r.id)?.scoreSamples, b = unc.get(head?.id ?? "")?.scoreSamples;
+      if (r.n > 0 && head.n > 0 && a && b && indistinguishable(a, b)) {
+        r.rank = head.rank;
+        r.tied = true;
+      } else {
+        head = r;
+      }
+    }
+  }
   return sorted;
 }
