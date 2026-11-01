@@ -167,3 +167,35 @@ describe("engine with every method", () => {
     expect(e.table()).toEqual(before);
   });
 });
+
+describe("BOCPD changepoint mass", () => {
+  it("responds to the observation that starts a new regime", () => {
+    const r = rng(9);
+    const h = new ScoreHistory(100);
+    const b = new BOCPD(h, 100);
+    for (let t = 0; t < 100; t++) {
+      const s = 0.1 * normInv(r());
+      b.observe(s);
+      h.push(s);
+    }
+    // A wildly unlikely score: almost all mass should move to the fresh regime at once,
+    // not the fixed hazard 1/100.
+    b.observe(50);
+    const fresh = b.runs.find((x) => x.len === 1)!;
+    expect(fresh.w).toBeGreaterThan(0.9);
+  });
+
+  it("keeps the changepoint mass near the hazard for typical scores", () => {
+    const r = rng(10);
+    const h = new ScoreHistory(100);
+    const b = new BOCPD(h, 100);
+    for (let t = 0; t < 200; t++) {
+      const s = normInv(r());
+      b.observe(s);
+      h.push(s);
+    }
+    b.observe(0);
+    const fresh = b.runs.find((x) => x.len === 1);
+    expect(fresh?.w ?? 0).toBeLessThan(0.02);
+  });
+});

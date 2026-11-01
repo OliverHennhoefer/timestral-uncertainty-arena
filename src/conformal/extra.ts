@@ -146,26 +146,29 @@ export class BOCPD {
       this.runs = [this.fresh(x, 1)];
       return;
     }
-    // Predictive probability of x under each run length, in log space for stability.
+    // Joint probability of x and each hypothesis, in log space for stability. Growth: the
+    // run continues (1 - H) and x comes from its predictive. Changepoint: a new regime starts
+    // just before x (total mass H, as the old weights sum to 1), so x is scored under the
+    // prior predictive, and the new regime is then conditioned on x.
     const runs = this.runs;
-    let mx = -Infinity;
+    const prior = empiricalPrior(this.h);
+    const logCp = Math.log(H) + tLogPdf(x, nigPredictive(prior, { n: 0, mean: 0, ss: 0 }));
+    let mx = logCp;
     for (const r of runs) {
-      r.w = Math.log(r.w) + tLogPdf(x, r.pred);
+      r.w = Math.log(r.w) + Math.log1p(-H) + tLogPdf(x, r.pred);
       if (r.w > mx) mx = r.w;
     }
-    let cp = 0, total = 0;
+    let total = 0;
     for (const r of runs) {
-      const m = Math.exp(r.w - mx);
-      cp += m * H;
-      r.w = m * (1 - H);
+      r.w = Math.exp(r.w - mx);
       total += r.w;
       r.len++;
       r.st = suffAdd(r.st, x);
       r.pred = nigPredictive(r.prior, r.st);
     }
+    const cp = Math.exp(logCp - mx);
     total += cp;
-    // A changepoint before x: the new regime has seen only x, starting from today's prior.
-    runs.unshift(this.fresh(x, cp));
+    runs.unshift(this.fresh(x, cp, prior));
     let kept = 0, keptW = 0;
     for (const r of runs) {
       r.w /= total;
@@ -185,8 +188,7 @@ export class BOCPD {
     for (const r of runs) r.w /= keptW;
   }
 
-  private fresh(x: number, w: number): Run {
-    const prior = empiricalPrior(this.h);
+  private fresh(x: number, w: number, prior: NIGPrior = empiricalPrior(this.h)): Run {
     const st = suffAdd({ n: 0, mean: 0, ss: 0 }, x);
     return { len: 1, w, st, prior, pred: nigPredictive(prior, st) };
   }
