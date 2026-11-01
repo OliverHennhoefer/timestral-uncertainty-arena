@@ -84,6 +84,11 @@ let playStopAt: number | null = null;
 let pendingReplay = false;
 /** Browser checkpoint a shared link asked for, loaded once the cache listing arrives. */
 let wantRepo: string | null = null;
+/**
+ * The link names a browser checkpoint that is not loaded yet: hold the replay until it is,
+ * or until the user picks a backend or checkpoint themselves, so it never runs on the wrong model.
+ */
+let replayNeedsModel = false;
 let backfilling = false;
 
 const NAMES: Record<string, string> = { [NATIVE_ID]: "Timestral native", ...Object.fromEntries(METHODS.map((m) => [m.id, m.name])) };
@@ -1061,7 +1066,7 @@ async function loadBrowserModel(repo: string) {
   setPill();
   renderModels();
   resetForecasts();
-  maybeStartReplay();
+  maybeStartReplay(true);
 }
 
 async function loadFromFiles(files: FileList) {
@@ -1084,7 +1089,7 @@ async function loadFromFiles(files: FileList) {
   setPill();
   renderModels();
   resetForecasts();
-  maybeStartReplay();
+  maybeStartReplay(true);
 }
 
 async function connectServer() {
@@ -1100,7 +1105,7 @@ async function connectServer() {
   }
   setPill();
   resetForecasts();
-  maybeStartReplay();
+  maybeStartReplay(true);
 }
 
 function bindControls() {
@@ -1152,7 +1157,7 @@ function bindControls() {
         resetForecasts();
       }
     }
-    maybeStartReplay();
+    maybeStartReplay(true);
   });
   $<HTMLSelectElement>("server-model").innerHTML = MODELS.map((m) => `<option value="${m.repo}">${m.label}</option>`).join("");
   $("btn-connect").addEventListener("click", connectServer);
@@ -1333,6 +1338,7 @@ function useSharedRepo() {
   if (activeRepo === repo && browserBackend?.ready) {
     backend = browserBackend;
     setPill();
+    replayNeedsModel = false;
     maybeStartReplay();
   } else if (cachedRepos.has(repo)) {
     loadBrowserModel(repo);
@@ -1352,6 +1358,7 @@ function selectModel(m: ModelRef) {
   } else if (m.backend === "browser") {
     const existed = browserBackend !== null;
     backend = ensureBrowserBackend();
+    replayNeedsModel = true;
     renderModels();
     if (m.repo) {
       wantRepo = m.repo;
@@ -1370,8 +1377,10 @@ function selectModel(m: ModelRef) {
   setPill();
 }
 
-function maybeStartReplay() {
-  if (!pendingReplay || !backend.ready || playing) return;
+/** `chosen`: the user (or the link's own checkpoint load) just picked the model to replay with. */
+function maybeStartReplay(chosen = false) {
+  if (chosen) replayNeedsModel = false;
+  if (!pendingReplay || replayNeedsModel || !backend.ready || playing) return;
   pendingReplay = false;
   togglePlay();
 }
@@ -1389,6 +1398,8 @@ async function restoreFromHash() {
   }
   if (playing) togglePlay();
   pendingReplay = false;
+  replayNeedsModel = false;
+  wantRepo = null;
 
   horizon = s.horizon;
   $<HTMLSelectElement>("horizon").value = String(horizon);
