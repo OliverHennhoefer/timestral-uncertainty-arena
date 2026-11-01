@@ -4,30 +4,58 @@
  *
  * PIT: for each pair, where the truth fell in the native predictive distribution, read off
  * the model's quantile vector by linear interpolation (below the lowest quantile counts as 0,
- * above the highest as 1). A calibrated forecaster gives a flat histogram.
+ * above the highest as 1). Where several quantiles tie at the truth (a flat series, or
+ * forecasts clipped at zero) the PIT is a range, and a point is drawn uniformly from it (the
+ * randomised PIT), seeded by the pair so replays agree. A calibrated forecaster gives a flat
+ * histogram.
  *
  * Reliability: nominal versus empirical coverage over several alpha levels. The native curve
- * follows from the PIT values, since the native central interval at coverage c contains the
- * truth exactly when its PIT lies in [(1 - c) / 2, (1 + c) / 2]. A conformal method is
+ * checks each truth against the interpolated native interval at every level, exactly as the
+ * engine scores the native row (a PIT value alone would miss ties). A conformal method is
  * calibrated at one alpha only, so the probe runs a shadow engine per extra alpha with just
  * that method enabled, fed the same series and stored forecasts. Engines are deterministic
  * in (series, forecasts, settings), so each shadow equals what the main engine would report
  * at that alpha.
  */
 
-import { Engine, NATIVE_ID } from "./engine";
+import { Engine, NATIVE_ID, quantileAt } from "./engine";
 
-/** Probability of `y` under the piecewise-linear CDF through the quantile vector at `offset`. */
-export function pitValue(q: Float32Array, offset: number, levels: number[], y: number): number {
+/**
+ * Range of probabilities `[F(y-), F(y)]` of `y` under the piecewise-linear CDF through the
+ * quantile vector at `offset`. The two ends differ only where quantiles tie at `y`.
+ */
+export function pitRange(q: Float32Array, offset: number, levels: number[], y: number): [number, number] {
   const Q = levels.length;
-  if (!(y >= q[offset])) return 0;
-  if (y > q[offset + Q - 1]) return 1;
+  if (!(y >= q[offset])) return [0, 0];
+  if (y > q[offset + Q - 1]) return [1, 1];
+  const at = (i: number) => {
+    if (i <= 0) return levels[0];
+    if (i >= Q) return levels[Q - 1];
+    const a = q[offset + i - 1], b = q[offset + i];
+    return b > a ? levels[i - 1] + ((y - a) / (b - a)) * (levels[i] - levels[i - 1]) : levels[i];
+  };
+  // Lower end: the first quantile at or above y. Upper end: just past the last one at or below it.
   let i = 0;
   while (i < Q - 1 && q[offset + i] < y) i++;
-  if (i === 0) return levels[0];
-  const a = q[offset + i - 1], b = q[offset + i];
-  if (!(b > a)) return levels[i];
-  return levels[i - 1] + ((y - a) / (b - a)) * (levels[i] - levels[i - 1]);
+  let j = Q - 1;
+  while (j > 0 && q[offset + j] > y) j--;
+  const lo = at(i);
+  const hi = j === Q - 1 ? levels[Q - 1] : Math.max(lo, at(j + 1));
+  return [lo, hi];
+}
+
+/** PIT of `y`; with ties, the point `u` (in [0, 1]) of the way through the tied range. */
+export function pitValue(q: Float32Array, offset: number, levels: number[], y: number, u = 0): number {
+  const [lo, hi] = pitRange(q, offset, levels, y);
+  return lo + u * (hi - lo);
+}
+
+/** Deterministic uniform in [0, 1) from a pair's target time and lead. */
+function pairUniform(t: number, k: number): number {
+  let h = Math.imul(t ^ 0x9e3779b9, 0x85ebca6b) ^ Math.imul(k + 0x27d4eb2f, 0xc2b2ae35);
+  h = Math.imul(h ^ (h >>> 16), 0x7feb352d);
+  h = Math.imul(h ^ (h >>> 15), 0x846ca68b);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
 }
 
 /** Counts per bin over [0, 1]; a PIT of exactly 1 goes in the last bin. */
@@ -37,16 +65,7 @@ export function pitHistogram(pits: readonly number[], bins = 10): number[] {
   return out;
 }
 
-/** Empirical coverage of central native intervals at nominal coverage `c`, from PIT values. */
-export function pitCoverage(pits: readonly number[], c: number): number {
-  if (!pits.length) return NaN;
-  const lo = (1 - c) / 2, hi = (1 + c) / 2;
-  let k = 0;
-  for (const p of pits) if (p >= lo - 1e-12 && p <= hi + 1e-12) k++;
-  return k / pits.length;
-}
-
-/** Nominal coverages for the native curve (cheap: read off the PIT values). */
+/** Nominal coverages for the native curve (cheap: no extra engines). */
 export const NATIVE_GRID = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 0.98];
 /** Nominal coverages for the conformal curve (each one costs a shadow engine). */
 export const METHOD_GRID = [0.5, 0.7, 0.8, 0.9, 0.95];
@@ -68,6 +87,8 @@ const same = (a: number, b: number) => Math.abs(a - b) < 1e-9;
 export class CalibrationProbe {
   /** PIT values of the native forecast per lead (index k - 1), in arrival order. */
   private pits: number[][] = [];
+  /** Per lead: native pairs covered at each `NATIVE_GRID` level. */
+  private covered: number[][] = [];
   private cursor: number[] = [];
   private shadows: { alpha: number; engine: Engine }[] = [];
   private metricsRef: unknown = null;
@@ -96,6 +117,7 @@ export class CalibrationProbe {
     this.key = key;
     this.methodId = id;
     this.pits = [];
+    this.covered = [];
     this.cursor = [];
     this.shadows = [];
     if (!id) return;
@@ -118,12 +140,18 @@ export class CalibrationProbe {
     m.lead.forEach((L, j) => {
       const k = j + 1;
       const out = (this.pits[j] ??= []);
+      const cov = (this.covered[j] ??= NATIVE_GRID.map(() => 0));
       let i = this.cursor[j] ?? 0;
       for (; i < L.t.length; i++) {
         const t = L.t[i];
         const f = main.forecasts.get(t - k);
         if (!f) continue;
-        out.push(pitValue(f.quantiles, j * f.levels.length, f.levels, main.series[t]));
+        const y = main.series[t], off = j * f.levels.length;
+        out.push(pitValue(f.quantiles, off, f.levels, y, pairUniform(t, k)));
+        NATIVE_GRID.forEach((c, g) => {
+          const a = (1 - c) / 2;
+          if (y >= quantileAt(f.quantiles, off, f.levels, a) && y <= quantileAt(f.quantiles, off, f.levels, 1 - a)) cov[g]++;
+        });
       }
       this.cursor[j] = i;
     });
@@ -172,7 +200,12 @@ export class CalibrationProbe {
 
   reliability(main: Engine, lead?: number): Reliability {
     const pits = this.pit(lead);
-    const native = NATIVE_GRID.map((c) => ({ nominal: c, empirical: pitCoverage(pits, c), n: pits.length }));
+    const rows = lead !== undefined ? [this.covered[lead - 1]].filter(Boolean) : this.covered;
+    const native = NATIVE_GRID.map((c, g) => {
+      let k = 0;
+      for (const r of rows) k += r[g];
+      return { nominal: c, empirical: pits.length ? k / pits.length : NaN, n: pits.length };
+    });
     const method: ReliabilityPoint[] = [];
     const id = this.methodId;
     if (id && this.ready) {

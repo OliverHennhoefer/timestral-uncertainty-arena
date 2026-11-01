@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CalibrationProbe, METHOD_GRID, pitCoverage, pitHistogram, pitValue } from "../src/engine/calibration";
+import { CalibrationProbe, METHOD_GRID, pitHistogram, pitRange, pitValue } from "../src/engine/calibration";
 import { Engine, NATIVE_ID, defaultSettings } from "../src/engine/engine";
 import { NaiveBackend, normInv } from "../src/model/backends";
 
@@ -34,9 +34,19 @@ describe("PIT", () => {
     expect(pitValue(q, 0, levels, 21)).toBe(1);
   });
 
-  it("bins over [0, 1] and reads central coverage off the PIT values", () => {
+  it("spans the tied range when several quantiles equal the truth", () => {
+    const flat = Float32Array.from([0, 0, 0]);
+    expect(pitRange(flat, 0, levels, 0)).toEqual([0.1, 0.9]);
+    expect(pitValue(flat, 0, levels, 0, 0.5)).toBeCloseTo(0.5);
+    const partly = Float32Array.from([0, 0, 20]);
+    const [lo, hi] = pitRange(partly, 0, levels, 0);
+    expect(lo).toBeCloseTo(0.1);
+    expect(hi).toBeCloseTo(0.5);
+    expect(pitRange(q, 0, levels, 5)).toEqual([pitValue(q, 0, levels, 5), pitValue(q, 0, levels, 5)]);
+  });
+
+  it("bins over [0, 1]", () => {
     expect(pitHistogram([0, 0.05, 0.55, 1], 10)).toEqual([2, 0, 0, 0, 0, 1, 0, 0, 0, 1]);
-    expect(pitCoverage([0.02, 0.3, 0.5, 0.7, 0.98], 0.8)).toBeCloseTo(0.6);
   });
 });
 
@@ -76,6 +86,20 @@ describe("calibration probe", () => {
     // Per lead, too.
     const lead2 = probe.reliability(main, 2).method.find((p) => Math.abs(p.nominal - 0.9) < 1e-9)!;
     expect(lead2.empirical).toBeCloseTo(main.table(2).find((x) => x.id === "aci")!.coverage, 10);
+  });
+
+  it("counts native coverage like the engine when quantiles tie (constant series)", async () => {
+    const main = new Engine({ ...defaultSettings(), evalLeads: 2, warmup: 5 });
+    const probe = new CalibrationProbe();
+    for (let t = 0; t < 40; t++) await step(main, 0, 2);
+    main.catchUp();
+    probe.sync(main, "aci");
+    const native = main.table().find((r) => r.id === NATIVE_ID)!;
+    expect(native.coverage).toBe(1);
+    for (const p of probe.reliability(main).native) expect(p.empirical).toBe(1);
+    // The randomised PIT spreads the tied mass instead of piling it in one bin.
+    const hist = pitHistogram(probe.pit(), 10);
+    expect(Math.max(...hist)).toBeLessThan(probe.pit().length / 2);
   });
 
   it("gives the same curve when the rebuild runs in slices", async () => {
