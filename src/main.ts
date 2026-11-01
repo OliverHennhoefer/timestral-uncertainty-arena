@@ -495,8 +495,13 @@ function renderTable() {
   const target = 1 - alpha;
   const unc = uncertainty();
   const rows = rankRows(engine.table(rankLead || undefined), alpha, rankBy, 0.02, unc);
-  const pm = (ci: [number, number] | undefined, scale = 1, digits = 2) =>
-    ci && Number.isFinite(ci[0]) && Number.isFinite(ci[1]) ? `<span class="pm">±${(((ci[1] - ci[0]) / 2) * scale).toFixed(digits)}</span>` : `<span class="pm"></span>`;
+  // Percentile intervals need not be symmetric, so show the lower and upper distances separately.
+  const pm = (est: number, ci: [number, number] | undefined, scale = 1, digits = 2) => {
+    if (!ci || !Number.isFinite(est) || !Number.isFinite(ci[0]) || !Number.isFinite(ci[1])) return `<span class="pm"></span>`;
+    const lo = Math.max(0, est - ci[0]) * scale, hi = Math.max(0, ci[1] - est) * scale;
+    const tip = `95% interval ${(ci[0] * scale).toFixed(digits)} – ${(ci[1] * scale).toFixed(digits)}`;
+    return `<span class="pm" title="${tip}"><span>+${hi.toFixed(digits)}</span><span>−${lo.toFixed(digits)}</span></span>`;
+  };
   const pct = (v: number) => (Number.isFinite(v) ? `${(v * 100).toFixed(1)}%` : "–");
   const num = (v: number) => (Number.isFinite(v) ? v.toFixed(2) : "–");
   const bar = (v: number, col: string) =>
@@ -510,9 +515,9 @@ function renderTable() {
       return `<tr class="${i === 0 && r.n > 0 ? "first" : ""}${r.id === focusId ? " focus" : ""}${r.tied ? " tied" : ""}" data-id="${r.id}" title="${tip}">
         <td>${r.n ? r.rank : "–"}</td>
         <td><span class="dot" style="background:${COLORS[r.id]}"></span>${NAMES[r.id]}</td>
-        <td${off}>${bar(r.coverage, COLORS[r.id])}${pct(r.coverage)}${pm(u?.coverage, 100, 1)}</td>
+        <td${off}>${bar(r.coverage, COLORS[r.id])}${pct(r.coverage)}${pm(r.coverage, u?.coverage, 100, 1)}</td>
         <td>${num(r.meanWidth)}</td>
-        <td>${num(r.intervalScore)}${pm(u?.intervalScore)}</td></tr>`;
+        <td>${num(r.intervalScore)}${pm(r.intervalScore, u?.intervalScore)}</td></tr>`;
     }),
   ];
   $("rank-table").innerHTML = html.join("");

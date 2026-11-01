@@ -57,8 +57,10 @@ export function blockBootstrap(
   seed = 12345,
 ): Map<string, Uncertainty> {
   const out = new Map<string, Uncertainty>();
-  if (T < 2) return out;
-  const L = Math.max(1, Math.min(T, Math.round(block)));
+  const L = Math.max(1, Math.round(block));
+  // With fewer than two blocks every replicate is the same data in a rotated order, which
+  // would report zero-width intervals. Report nothing until resampling means something.
+  if (T < 2 * L) return out;
   const nBlocks = Math.ceil(T / L);
   const rand = mulberry32(seed);
   const starts = new Int32Array(B * nBlocks);

@@ -70,9 +70,9 @@ export interface MethodMetrics {
   /** Sums per arrival with evaluations (aligned with `Engine.traceT`), for rolling windows and the bootstrap. */
   arr: { n: number[]; cov: number[]; width: number[]; is: number[] };
   /** Per lead (index k - 1): one entry per evaluated pair, in arrival order. */
-  lead: { cov: number[]; width: number[]; is: number[] }[];
-  /** Running sums over the last `rolling` arrivals. */
-  roll: { n: number; cov: number; width: number };
+  lead: { t: number[]; cov: number[]; width: number[]; is: number[] }[];
+  /** Running sums over arrivals in the last `rolling` time steps; `from` indexes `arr`. */
+  roll: { n: number; cov: number; width: number; from: number };
   /** Rolling coverage / width after each arrival with evaluations. */
   covTrace: number[];
   widthTrace: number[];
@@ -137,8 +137,8 @@ export class Engine {
     return {
       id, n: 0, covered: 0, widthSum: 0, intervalScoreSum: 0,
       arr: { n: [], cov: [], width: [], is: [] },
-      lead: Array.from({ length: this.settings.evalLeads }, () => ({ cov: [], width: [], is: [] })),
-      roll: { n: 0, cov: 0, width: 0 },
+      lead: Array.from({ length: this.settings.evalLeads }, () => ({ t: [], cov: [], width: [], is: [] })),
+      roll: { n: 0, cov: 0, width: 0, from: 0 },
       covTrace: [], widthTrace: [],
     };
   }
@@ -345,6 +345,7 @@ export class Engine {
           m.widthSum += width;
           m.intervalScoreSum += is;
           const L = m.lead[j];
+          L.t.push(t);
           L.cov.push(cov);
           L.width.push(width);
           L.is.push(is);
@@ -358,7 +359,10 @@ export class Engine {
       for (const [, m] of methods) m.update(f.origin, s);
       history.push(s);
     }
-    if (evaluatedAny) {
+    if (!evaluatedAny) {
+      // Time still advances: entries older than R steps leave the window even without new pairs.
+      for (const id of ids) this.expire(this.metrics.get(id)!, t, this.settings.rolling);
+    } else {
       this.traceT.push(t);
       const R = this.settings.rolling;
       ids.forEach((id, i) => {
@@ -371,16 +375,22 @@ export class Engine {
         m.roll.n += a.n;
         m.roll.cov += a.cov;
         m.roll.width += a.width;
-        const drop = m.arr.n.length - 1 - R;
-        if (drop >= 0) {
-          m.roll.n -= m.arr.n[drop];
-          m.roll.cov -= m.arr.cov[drop];
-          m.roll.width -= m.arr.width[drop];
-        }
+        this.expire(m, t, R);
         const r = rolling(m);
         m.covTrace.push(r.coverage);
         m.widthTrace.push(r.width);
       });
+    }
+  }
+
+  /** Drop arrivals at or before `t - R` from the rolling sums (window = the last R time steps). */
+  private expire(m: MethodMetrics, t: number, R: number): void {
+    const r = m.roll;
+    while (r.from < m.arr.n.length && this.traceT[r.from] <= t - R) {
+      r.n -= m.arr.n[r.from];
+      r.cov -= m.arr.cov[r.from];
+      r.width -= m.arr.width[r.from];
+      r.from++;
     }
   }
 
@@ -432,7 +442,10 @@ export class Engine {
         const L = this.metrics.get(id)!.lead[lead - 1];
         const n = L?.cov.length ?? 0;
         const sum = (a: number[], from = 0) => { let v = 0; for (let i = from; i < a.length; i++) v += a[i]; return v; };
-        const from = Math.max(0, n - R), nr = n - from;
+        // Rolling over the last R time steps, ending at the latest processed arrival.
+        let from = n;
+        while (from > 0 && L.t[from - 1] > this.processedUpTo - R) from--;
+        const nr = n - from;
         return {
           id, n,
           coverage: n ? sum(L.cov) / n : NaN,

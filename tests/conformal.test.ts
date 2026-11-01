@@ -155,6 +155,29 @@ describe("engine", () => {
     expect(e.table().find((x) => x.id === NATIVE_ID)!.rollingCoverage).toBeCloseTo(m.arr.cov[last] / 4, 12);
   });
 
+  it("rolling window expires by elapsed steps when forecasts are sparse", async () => {
+    const r = rng(8);
+    const y = Array.from({ length: 100 }, () => normInv(r()));
+    const e = new Engine({ ...defaultSettings(), evalLeads: 4, warmup: 1, rolling: 5 });
+    for (let t = 0; t < y.length; t++) {
+      e.append(y[t]);
+      if (t === 10 || t === 15) {
+        const fc = await naive.forecast({ context: Float64Array.from(e.series), horizon: 4, symmetric: false, clip: false, maxContext: 512 });
+        e.addForecast(t, fc.quantiles, fc.horizon, fc.levels);
+      }
+    }
+    e.catchUp();
+    const row = e.table().find((x) => x.id === NATIVE_ID)!;
+    expect(row.n).toBe(4); // origin 15, leads 1-4, scored at t = 16..19
+    expect(Number.isNaN(row.rollingCoverage)).toBe(true); // nothing in the last 5 steps
+    expect(Number.isNaN(e.table(1).find((x) => x.id === NATIVE_ID)!.rollingCoverage)).toBe(true);
+  });
+
+  it("bootstrap reports nothing with fewer than two blocks of data", () => {
+    const s = { n: [1, 1, 1, 1], cov: [1, 0, 1, 1], width: [1, 2, 3, 4], is: [1, 2, 3, 4] };
+    expect(blockBootstrap(new Map([["a", s]]), 4, 16).size).toBe(0);
+  });
+
   it("block bootstrap covers the truth and detects ties", () => {
     const r = rng(11);
     const T = 600;
