@@ -4,7 +4,7 @@ import { Engine, NATIVE_COLOR, NATIVE_ID, type RankBy, type ScoreType, type Sett
 import { type Backend, BrowserBackend, NaiveBackend, ServerBackend } from "./model/backends";
 import { MODELS } from "./model/registry";
 import { PRESETS } from "./synthetic";
-import { cssVar, fitCanvas, lineChart, withAlpha } from "./ui/plot";
+import { FONT, cssVar, fitCanvas, lineChart, withAlpha } from "./ui/plot";
 
 // ---------------------------------------------------------------------------------------
 // State
@@ -25,7 +25,10 @@ let symmetric = true;
 let clip = true;
 let rankBy: RankBy = "interval_score";
 let focusId = "aci";
+const MISS_COLOR = "#FF3B30";
 let showAll = true;
+/** Off: a stroke only moves forward in time; drawing left of the end does nothing. */
+let allowRewind = false;
 
 let inFlight = false;
 /** Origin whose forecast last failed; not retried until the series or backend changes. */
@@ -171,6 +174,7 @@ function drawTo(step: number, value: number) {
   const n = engine.series.length;
   if (i < n) {
     if (i === n - 1) return; // same column: keep the first value
+    if (!allowRewind) return; // forward-only: never overwrite recorded history
     engine.truncate(i);
     engine.append(round(value));
   } else {
@@ -192,7 +196,7 @@ canvas.addEventListener("pointerdown", (e) => {
   drawing = true;
   canvas.setPointerCapture(e.pointerId);
   const step = stepAt(e.clientX);
-  if (engine.series.length && step - seriesOffset < engine.series.length - 1) engine.truncate(Math.max(0, step - seriesOffset));
+  if (allowRewind && engine.series.length && step - seriesOffset < engine.series.length - 1) engine.truncate(Math.max(0, step - seriesOffset));
   drawTo(step, valueAt(e.clientY));
 });
 canvas.addEventListener("pointermove", (e) => {
@@ -225,7 +229,7 @@ function followEnd(trigger: number, to: number) {
 
 function togglePlay() {
   playing = !playing;
-  $("btn-play").textContent = playing ? "❚❚ Pause" : "▶ Play";
+  $("btn-play").textContent = playing ? "Pause" : "Play";
   if (playing) {
     if (playIdx >= playData.length || engine.series.length === 0) startStream();
     tick();
@@ -302,9 +306,9 @@ function renderMain() {
     ctx.lineTo(w, Y(v));
     ctx.stroke();
   }
-  ctx.fillStyle = muted;
-  ctx.font = "11px system-ui, sans-serif";
-  for (let v = 20; v < 100; v += 20) ctx.fillText(String(v), 4, Y(v) - 3);
+  ctx.fillStyle = withAlpha(muted.startsWith("#") ? muted : "#8e8e93", 0.7);
+  ctx.font = FONT;
+  for (let v = 20; v < 100; v += 20) ctx.fillText(String(v), 6, Y(v) - 4);
 
   const n = engine.series.length;
   const first = Math.max(0, Math.floor(view.start - seriesOffset) - 1);
@@ -313,7 +317,7 @@ function renderMain() {
   // Historical lead-1 intervals of the focus method, with misses marked.
   const fid = engine.settings.enabled[focusId] || focusId === NATIVE_ID ? focusId : NATIVE_ID;
   const fcol = COLORS[fid];
-  ctx.fillStyle = withAlpha(fcol, 0.18);
+  ctx.fillStyle = withAlpha(fcol, 0.14);
   const misses: [number, number][] = [];
   for (let o = first - 1; o <= last; o++) {
     const f = engine.forecasts.get(o);
@@ -328,11 +332,12 @@ function renderMain() {
 
   // Series.
   ctx.strokeStyle = ink;
-  ctx.lineWidth = 2;
+  ctx.lineWidth = 1.75;
+  ctx.lineJoin = "round";
   ctx.beginPath();
   for (let i = first; i <= last; i++) (i === first ? ctx.moveTo(S(i), Y(engine.series[i])) : ctx.lineTo(S(i), Y(engine.series[i])));
   ctx.stroke();
-  ctx.fillStyle = "#e4572e";
+  ctx.fillStyle = MISS_COLOR;
   for (const [x, y] of misses) {
     ctx.beginPath();
     ctx.arc(x, y, 2.5, 0, 2 * Math.PI);
@@ -346,7 +351,7 @@ function renderMain() {
     const H = f.horizon;
     const Q = f.levels.length;
     const xAt = (k: number) => S(lo + 1 + k);
-    // Native fan: 1-99%, 10-90% and the alpha band.
+    // Native fan: 10-90% shaded, the alpha band dashed.
     const band = (loIdx: number, hiIdx: number, a: number) => {
       ctx.fillStyle = withAlpha(NATIVE_COLOR, a);
       ctx.beginPath();
@@ -355,10 +360,9 @@ function renderMain() {
       ctx.closePath();
       ctx.fill();
     };
-    band(0, Q - 1, 0.08);
-    band(2, Q - 3, 0.12);
-    ctx.strokeStyle = NATIVE_COLOR;
-    ctx.lineWidth = 1.25;
+    band(2, Q - 3, 0.1);
+    ctx.strokeStyle = withAlpha(NATIVE_COLOR, 0.9);
+    ctx.lineWidth = 1;
     ctx.setLineDash([3, 3]);
     for (const arr of [f.lo, f.hi]) {
       ctx.beginPath();
@@ -367,8 +371,8 @@ function renderMain() {
     }
     ctx.setLineDash([]);
     ctx.strokeStyle = ink;
-    ctx.lineWidth = 1.5;
-    ctx.setLineDash([6, 3]);
+    ctx.lineWidth = 1.25;
+    ctx.setLineDash([5, 4]);
     ctx.beginPath();
     ctx.moveTo(S(lo), Y(engine.series[lo]));
     for (let k = 0; k < H; k++) ctx.lineTo(xAt(k), Y(f.median[k]));
@@ -388,22 +392,22 @@ function renderMain() {
       if (!ivs.length) continue;
       const col = COLORS[id];
       if (id === fid) {
-        ctx.fillStyle = withAlpha(col, 0.18);
+        ctx.fillStyle = withAlpha(col, 0.14);
         ctx.beginPath();
         ivs.forEach((iv, k) => ctx.lineTo(xAt(k), Y(iv[1])));
         for (let k = ivs.length - 1; k >= 0; k--) ctx.lineTo(xAt(k), Y(ivs[k][0]));
         ctx.closePath();
         ctx.fill();
       }
-      ctx.strokeStyle = col;
-      ctx.lineWidth = id === fid ? 2 : 1.25;
+      ctx.strokeStyle = id === fid ? col : withAlpha(col, 0.55);
+      ctx.lineWidth = id === fid ? 1.75 : 1;
       for (const side of [0, 1] as const) {
         ctx.beginPath();
         ivs.forEach((iv, k) => ctx.lineTo(xAt(k), Y(iv[side])));
         ctx.stroke();
       }
     }
-    ctx.strokeStyle = withAlpha("#888888", 0.6);
+    ctx.strokeStyle = withAlpha("#8e8e93", 0.35);
     ctx.setLineDash([2, 4]);
     ctx.beginPath();
     ctx.moveTo(S(lo) + 0.5, 0);
@@ -411,27 +415,32 @@ function renderMain() {
     ctx.stroke();
     ctx.setLineDash([]);
   }
-
-  ctx.fillStyle = muted;
-  const info = `${n} points · ${engine.forecasts.size} forecasts${inFlight ? " · forecasting…" : ""}`;
-  ctx.fillText(info, w - ctx.measureText(info).width - 6, 14);
 }
 
 function renderCharts() {
   const ids = engine.rowIds;
   const xs = engine.traceT;
   const target = 1 - engine.settings.alpha;
-  $("cov-target").textContent = `target ${(target * 100).toFixed(0)}%, last ${engine.settings.rolling} evaluated pairs`;
+  $("cov-target").textContent = `target ${(target * 100).toFixed(0)}%`;
+  $("cov-target").title = `Over the last ${engine.settings.rolling} evaluated pairs`;
+  // The focused method is drawn last and solid; the others recede.
+  const order = [...ids.filter((id) => id !== focusId), ...ids.filter((id) => id === focusId)];
+  const trace = (id: string, values: number[]) => ({
+    color: id === focusId ? COLORS[id] : withAlpha(COLORS[id], 0.45),
+    values,
+    width: id === focusId ? 2 : 1.25,
+    dash: id === NATIVE_ID ? [4, 3] : undefined,
+  });
   lineChart(
     $<HTMLCanvasElement>("cov-canvas"),
     xs,
-    ids.map((id) => ({ color: COLORS[id], values: engine.metrics.get(id)!.covTrace, width: id === focusId ? 2.5 : 1.25, dash: id === NATIVE_ID ? [4, 3] : undefined })),
+    order.map((id) => trace(id, engine.metrics.get(id)!.covTrace)),
     { target, yMax: 1, floor: 0, format: (v) => `${(v * 100).toFixed(0)}%` },
   );
   lineChart(
     $<HTMLCanvasElement>("width-canvas"),
     xs,
-    ids.map((id) => ({ color: COLORS[id], values: engine.metrics.get(id)!.widthTrace, width: id === focusId ? 2.5 : 1.25, dash: id === NATIVE_ID ? [4, 3] : undefined })),
+    order.map((id) => trace(id, engine.metrics.get(id)!.widthTrace)),
     { yMin: 0, format: (v) => v.toFixed(1) },
   );
 }
@@ -445,30 +454,38 @@ function renderTable() {
   const bar = (v: number, col: string) =>
     `<span class="covbar"><span class="fill" style="width:${Number.isFinite(v) ? v * 100 : 0}%;background:${col}"></span><span class="target" style="left:${target * 100}%"></span></span>`;
   const html = [
-    `<tr><th>#</th><th>Method</th><th>Coverage</th><th>Rolling</th><th>Mean width</th><th>Interval score</th><th>Pairs</th></tr>`,
+    `<tr><th>#</th><th>Method</th><th>Coverage</th><th>Width</th><th>Score</th></tr>`,
     ...rows.map((r, i) => {
-      const gapCls = Number.isFinite(r.coverage) && Math.abs(r.coverage - target) > 0.05 ? ' style="color:#e4572e"' : "";
-      return `<tr class="${i === 0 && r.n > 0 ? "first" : ""}">
+      const off = Number.isFinite(r.coverage) && Math.abs(r.coverage - target) > 0.05 ? ' class="off"' : "";
+      const tip = `Rolling coverage ${pct(r.rollingCoverage)} · ${r.n} pairs`;
+      return `<tr class="${i === 0 && r.n > 0 ? "first" : ""}${r.id === focusId ? " focus" : ""}" data-id="${r.id}" title="${tip}">
         <td>${r.n ? r.rank : "–"}</td>
-        <td><span class="swatch" style="background:${COLORS[r.id]}"></span> ${NAMES[r.id]}</td>
-        <td${gapCls}>${pct(r.coverage)}${bar(r.coverage, COLORS[r.id])}</td>
-        <td>${pct(r.rollingCoverage)}</td>
+        <td><span class="dot" style="background:${COLORS[r.id]}"></span>${NAMES[r.id]}</td>
+        <td${off}>${bar(r.coverage, COLORS[r.id])}${pct(r.coverage)}</td>
         <td>${num(r.meanWidth)}</td>
-        <td>${num(r.intervalScore)}</td>
-        <td>${r.n}</td></tr>`;
+        <td>${num(r.intervalScore)}</td></tr>`;
     }),
   ];
   $("rank-table").innerHTML = html.join("");
 }
 
+function setFocus(id: string) {
+  focusId = id;
+  renderLegend();
+  requestRender();
+}
+
 function renderLegend() {
-  const items = [
-    `<span class="item"><span class="swatch" style="background:${cssVar("--series")}"></span>series / median</span>`,
-    `<span class="item"><span class="swatch" style="background:${withAlpha(NATIVE_COLOR, 0.35)}"></span>Timestral native (α band dashed, 10–90% and 1–99% shaded)</span>`,
-    ...engine.activeSpecs.map((m) => `<span class="item"><span class="swatch" style="background:${m.color}"></span>${m.name}${m.id === focusId ? " (focus)" : ""}</span>`),
-    `<span class="item"><span class="swatch" style="background:#e4572e;border-radius:50%"></span>miss of the focus method at lead 1</span>`,
+  // Chips double as the focus picker: the focused method is filled and shows its lead-1 history.
+  const chip = (id: string, name: string, tip: string) =>
+    `<button class="chip${id === focusId ? " on" : ""}" data-id="${id}" title="${tip}"><span class="dot" style="background:${COLORS[id]}"></span>${name}</button>`;
+  const chips = [
+    chip(NATIVE_ID, "Timestral", "Native quantiles: α band dashed, 10–90% shaded. Click to focus."),
+    ...engine.activeSpecs.map((m) => chip(m.id, m.name, `${m.summary} Click to focus.`)),
   ];
-  $("legend").innerHTML = items.join("");
+  const el = $("legend");
+  el.innerHTML = chips.join("") + `<span class="legend-note" title="A miss of the focused method at lead 1"><span class="dot" style="background:${MISS_COLOR}"></span>miss</span>`;
+  el.querySelectorAll<HTMLButtonElement>(".chip").forEach((b) => b.addEventListener("click", () => setFocus(b.dataset.id!)));
 }
 
 function setPill() {
@@ -491,34 +508,19 @@ function applySettings(patch: Partial<Settings>) {
 function renderMethods() {
   const list = $("method-list");
   const s = engine.settings;
-  const nativeRow = `<div class="method"><div class="head">
-      <input type="radio" name="focus" value="${NATIVE_ID}" ${focusId === NATIVE_ID ? "checked" : ""} title="Focus" />
-      <span class="swatch" style="background:${NATIVE_COLOR}"></span>
-      <span class="name">Timestral native</span></div>
-      <div class="ref">The model's own ${"("}α/2, 1−α/2) quantiles, interpolated between its 21 levels. The baseline to beat.</div></div>`;
-  list.innerHTML =
-    nativeRow +
-    METHODS.map(
-      (m) => `<div class="method" data-id="${m.id}">
-      <div class="head">
-        <input type="radio" name="focus" value="${m.id}" ${focusId === m.id ? "checked" : ""} title="Focus: drawn filled, with its lead-1 history" />
-        <span class="swatch" style="background:${m.color}"></span>
-        <span class="name" title="${m.summary}">${m.name}</span>
-        <input type="checkbox" class="toggle" ${s.enabled[m.id] ? "checked" : ""} title="Enable" />
-      </div>
-      <div class="ref" title="${m.summary}">${m.reference}</div>
-      ${m.params.length ? `<div class="params">${m.params
-        .map((p) => `<label title="${p.help ?? ""}">${p.label}<input type="number" data-param="${p.key}" min="${p.min}" max="${p.max}" step="${p.step}" value="${s.params[m.id]?.[p.key] ?? p.default}" /></label>`)
-        .join("")}</div>` : ""}
+  list.innerHTML = METHODS.map(
+    (m) => `<div class="method" data-id="${m.id}">
+      <label class="switch" title="${m.summary} (${m.reference})">
+        <input type="checkbox" class="toggle" ${s.enabled[m.id] ? "checked" : ""} /><span></span>
+        <i class="dot" style="background:${m.color}"></i><b class="name">${m.name}</b>
+      </label>
+      ${m.params.length ? `<details class="params-box"><summary title="Parameters">${m.params.map((p) => p.label).join(", ")}</summary>
+        <div class="ref">${m.reference}</div>
+        <div class="params">${m.params
+          .map((p) => `<label title="${p.help ?? ""}">${p.label}<input type="number" data-param="${p.key}" min="${p.min}" max="${p.max}" step="${p.step}" value="${s.params[m.id]?.[p.key] ?? p.default}" /></label>`)
+          .join("")}</div></details>` : ""}
     </div>`,
-    ).join("");
-  list.querySelectorAll<HTMLInputElement>('input[name="focus"]').forEach((el) =>
-    el.addEventListener("change", () => {
-      focusId = el.value;
-      renderLegend();
-      requestRender();
-    }),
-  );
+  ).join("");
   list.querySelectorAll<HTMLElement>(".method[data-id]").forEach((row) => {
     const id = row.dataset.id!;
     row.querySelector<HTMLInputElement>(".toggle")!.addEventListener("change", (e) => {
@@ -641,6 +643,10 @@ function bindControls() {
     requestRender();
   });
   $("btn-backfill").addEventListener("click", backfill);
+  $("rank-table").addEventListener("click", (e) => {
+    const row = (e.target as HTMLElement).closest<HTMLElement>("tr[data-id]");
+    if (row) setFocus(row.dataset.id!);
+  });
 
   const backendSel = $<HTMLSelectElement>("backend");
   backendSel.addEventListener("change", () => {
@@ -712,19 +718,73 @@ function bindControls() {
     showAll = (e.target as HTMLInputElement).checked;
     requestRender();
   });
+  const rewind = $<HTMLInputElement>("allow-rewind");
+  rewind.checked = allowRewind;
+  rewind.addEventListener("change", () => {
+    allowRewind = rewind.checked;
+    $("draw-hint").textContent = drawHint();
+  });
+  $("draw-hint").textContent = drawHint();
   $<HTMLSelectElement>("rank-by").addEventListener("change", (e) => {
     rankBy = (e.target as HTMLSelectElement).value as RankBy;
     renderTable();
   });
-  window.addEventListener("resize", requestRender);
+  window.addEventListener("resize", () => followEnd(0.8, 0.7));
   window.matchMedia?.("(prefers-color-scheme: dark)").addEventListener?.("change", () => {
     renderLegend();
     requestRender();
   });
 }
 
+// ---------------------------------------------------------------------------------------
+// Configuration side panel
+
+function drawHint(): string {
+  return allowRewind
+    ? "Draw a curve from left to right. Every new step is forecast; drawing back to the left rewinds."
+    : "Draw a curve from left to right. Every new step is forecast; strokes only move forward in time.";
+}
+
+function setPanel(open: boolean, persist = true) {
+  $("shell").classList.toggle("collapsed", !open);
+  if (persist) {
+    try {
+      localStorage.setItem("ctimestral-panel", open ? "open" : "closed");
+    } catch {
+      // ignore
+    }
+  }
+  // Canvases resize with the layout; redraw during and after the slide.
+  requestRender();
+  // The plot width changes with the panel; keep the series end and forecast in view.
+  window.setTimeout(() => followEnd(0.8, 0.7), 220);
+}
+
+function initPanel() {
+  let stored: string | null = null;
+  try {
+    stored = localStorage.getItem("ctimestral-panel");
+  } catch {
+    // ignore
+  }
+  const narrow = window.matchMedia("(max-width: 900px)").matches;
+  setPanel(narrow ? false : stored !== "closed", false);
+  $("btn-panel-open").addEventListener("click", () => setPanel(true));
+  $("btn-panel-close").addEventListener("click", () => setPanel(false));
+  $("scrim").addEventListener("click", () => setPanel(false));
+  window.addEventListener("keydown", (e) => {
+    const t = e.target as HTMLElement;
+    if (e.key !== "[" || e.metaKey || e.ctrlKey || e.altKey || ["INPUT", "SELECT", "TEXTAREA"].includes(t.tagName)) return;
+    setPanel($("shell").classList.contains("collapsed"));
+  });
+}
+
+initPanel();
 bindControls();
 renderMethods();
 renderLegend();
 setPill();
 requestRender();
+
+// Dev-only handle for automated UI checks.
+if (import.meta.env.DEV) (window as unknown as { __ctimestral: unknown }).__ctimestral = { engine };

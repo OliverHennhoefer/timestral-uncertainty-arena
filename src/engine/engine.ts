@@ -28,7 +28,7 @@ export interface Settings {
 }
 
 export const NATIVE_ID = "native";
-export const NATIVE_COLOR = "#6b7280";
+export const NATIVE_COLOR = "#8E8E93";
 
 export function defaultSettings(): Settings {
   return {
