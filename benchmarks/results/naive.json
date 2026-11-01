@@ -1,8 +1,8 @@
 {
  "schema": 1,
  "run": "naive",
- "createdAt": "2026-11-01T18:55:58.368Z",
- "commit": "6f571c8+dirty",
+ "createdAt": "2026-11-01T18:59:18.837Z",
+ "commit": "9a39a2f",
  "model": {
   "backend": "naive",
   "id": "naive",
@@ -204,7 +204,7 @@
    "group": "Synthetic",
    "points": 2000,
    "pairs": 31584,
-   "seconds": 7.9,
+   "seconds": 8.3,
    "rows": [
     {
      "id": "nexcp",
@@ -502,7 +502,7 @@
    "group": "Synthetic",
    "points": 2000,
    "pairs": 31584,
-   "seconds": 7.7,
+   "seconds": 7.6,
    "rows": [
     {
      "id": "cpcp",
@@ -1098,7 +1098,7 @@
    "group": "Synthetic",
    "points": 2000,
    "pairs": 31584,
-   "seconds": 7.8,
+   "seconds": 8.3,
    "rows": [
     {
      "id": "nexcp",
@@ -1396,7 +1396,7 @@
    "group": "Synthetic",
    "points": 2000,
    "pairs": 31584,
-   "seconds": 7.9,
+   "seconds": 8.1,
    "rows": [
     {
      "id": "nexcp",
@@ -1694,7 +1694,7 @@
    "group": "Synthetic",
    "points": 2000,
    "pairs": 31584,
-   "seconds": 7.8,
+   "seconds": 7.7,
    "rows": [
     {
      "id": "nexcp",
@@ -1992,7 +1992,7 @@
    "group": "Synthetic",
    "points": 2000,
    "pairs": 31584,
-   "seconds": 7.2,
+   "seconds": 7.5,
    "rows": [
     {
      "id": "dtaci",
@@ -2590,7 +2590,7 @@
    "source": "Amazon (AMZN) daily close, 2013-01-02 to 2016-12-30 (1008 points, trading day; USD, split adjusted)",
    "points": 1008,
    "pairs": 15712,
-   "seconds": 3.2,
+   "seconds": 3.3,
    "rows": [
     {
      "id": "nexcp",
@@ -2889,7 +2889,7 @@
    "source": "Electricity demand, England and Wales, half-hourly, 2000-06-05 00:00 to 2000-07-16 23:30 (2016 points, 30 min; MW)",
    "points": 2000,
    "pairs": 31584,
-   "seconds": 7.6,
+   "seconds": 7.9,
    "rows": [
     {
      "id": "nexcp",
@@ -3188,7 +3188,7 @@
    "source": "Mauna Loa atmospheric CO2, weekly, 1963-09-07 to 2001-12-29 (2000 points, week; ppm)",
    "points": 2000,
    "pairs": 31584,
-   "seconds": 7.7,
+   "seconds": 7.2,
    "rows": [
     {
      "id": "split",
@@ -3487,7 +3487,7 @@
    "source": "Sea surface temperature, Nino 1+2 region, 1950-01 to 2010-12 (732 points, month; °C)",
    "points": 732,
    "pairs": 11296,
-   "seconds": 2.2,
+   "seconds": 2.3,
    "rows": [
     {
      "id": "nexcp",
