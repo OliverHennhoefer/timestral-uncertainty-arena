@@ -43,7 +43,7 @@ export function defaultSettings(): Settings {
     window: 100,
     warmup: 10,
     rolling: 100,
-    enabled: Object.fromEntries(METHODS.map((m) => [m.id, true])),
+    enabled: Object.fromEntries(METHODS.map((m) => [m.id, m.defaultOn !== false])),
     params: Object.fromEntries(METHODS.map((m) => [m.id, defaultParams(m)])),
   };
 }

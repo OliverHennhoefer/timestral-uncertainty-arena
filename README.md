@@ -70,10 +70,25 @@ In the app, pick a backend:
 | Quantile tracker | Angelopoulos, Candès & Tibshirani, NeurIPS 2023 | q ← q + η(err − α), η scaled by the recent score range |
 | Conformal PID | Angelopoulos, Candès & Tibshirani, NeurIPS 2023 | quantile tracker plus a saturated error integrator (no scorecaster) |
 | NexCP | Barber, Candès, Ramdas & Tibshirani, Ann. Stat. 2023 | weighted quantile with weights ρ^age |
+| ECI | Wu, Hu, Bao, Xia & Zou, ICLR 2025 | quantile tracker plus an error-quantification term (s − q)·f′(s − q); f is a sigmoid in units of the recent score range. Coverage holds only up to a bias that grows with the EQ term, typically below target |
+| SF-OGD (off by default) | Orabona & Pál 2016; Bhatnagar et al., ICML 2023 | scale-free gradient descent on the pinball loss, step D/√Σg², D = recent score range |
+| SAOCP (off by default) | Bhatnagar, Wang, Xiong & Bai, ICML 2023 | SF-OGD experts on geometric covering intervals (lifetime g·2^k), combined by coin betting; follows the reference implementation |
+
+**Bayesian** (grouped separately in the sidebar). The model-based ones carry no distribution-free coverage guarantee and are marked so in their tooltip.
+
+| Method | Reference | Notes |
+|---|---|---|
+| Bayesian belief CP | Zhang, Bombara & Yang 2024, "The Benefit of Being Bayesian in Online Conformal Prediction" | threshold = (1−α) quantile of λ·P0 + (1−λ)·discounted empirical score distribution, λ = √(1−β)/(β+√(1−β)); P0 uniform on the score range seen. One belief serves every α; no feedback on past errors, usually slightly conservative |
+| BOCPD + ACI (off by default) | Adams & MacKay 2007; Gibbs & Candès 2021 | BOCPD predictive quantile at a level α_t that ACI adapts, so the long-run coverage guarantee of ACI holds |
+| Changepoint CP (off by default) | Barber et al. 2023 with weights from Adams & MacKay 2007 | weighted split conformal, weight of a past score = posterior probability it belongs to the current regime (floored at 0.02·0.99^age) |
+| BOCPD (off by default) | Adams & MacKay 2007 | Bayesian online changepoint detection, Normal–Inverse-Gamma per regime with an empirical-Bayes prior; Student-t mixture predictive quantile. Model-based |
+| Discounted Bayes | West & Harrison 1997 | Gaussian score with unknown mean and variance, evidence discounted by δ per step (≈ 1/(1−δ) effective points); Student-t predictive quantile. Model-based |
+
+Methods that only follow the recent level of the scores (BOCPD, Changepoint CP, SAOCP) tend to under-cover at long leads: their feedback is `k` steps old and the scores of overlapping forecasts are strongly autocorrelated. Methods driven by their own coverage errors (ACI, the quantile tracker, PID, BOCPD + ACI) correct for that.
 
 Each method can be switched on or off and its parameters changed live; everything is replayed from the stored forecasts so the comparison stays fair. Thresholds are clipped to ± the largest |score| seen so far at that lead, which also turns infinite thresholds (e.g. ACI with α_t ≤ 0, or a saturated PID integrator) into finite, comparable widths.
 
-New methods implement `OnlineMethod` (`predict(key)` / `update(key, score)`) in `src/conformal/methods.ts` and are added to `METHODS`.
+New methods implement `OnlineMethod` (`predict(key)` / `update(key, score)`), in `src/conformal/methods.ts` or `src/conformal/extra.ts` (Student-t helpers in `stats.ts`), and are added to `METHODS`. `family`, `guarantee` and `defaultOn` control the sidebar group, the tooltip and the initial toggle state.
 
 ## Layout
 

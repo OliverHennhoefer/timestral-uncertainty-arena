@@ -220,6 +220,8 @@ table.rank td.off { color: var(--danger); }
 
 /* Methods list */
 .method { padding: 2px 0; }
+.method-group { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin: 12px 0 0; }
+.method-group:first-child { margin-top: 2px; }
 .method .switch { margin: 8px 0 2px; }
 .method .switch i.dot { margin-left: 2px; }
 .method .name { flex: 1; font-weight: 500; }
