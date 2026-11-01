@@ -339,8 +339,12 @@ function renderMain() {
         let prev = -Infinity;
         for (const b of band) {
           const x = S(b[0]), yv = Y(b[side]);
-          if (b[0] !== prev + 1) ctx.moveTo(x, yv);
-          else ctx.lineTo(x, yv);
+          // A run starts with a short tick, so isolated origins (sparse forecasts) stay visible.
+          if (b[0] !== prev + 1) {
+            const h = Math.max(1.5, view.pxPerStep / 2);
+            ctx.moveTo(x - h, yv);
+            ctx.lineTo(x + h, yv);
+          } else ctx.lineTo(x, yv);
           prev = b[0];
         }
         ctx.stroke();
