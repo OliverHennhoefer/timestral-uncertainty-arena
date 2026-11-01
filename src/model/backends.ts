@@ -1,16 +1,80 @@
 /**
  * Pluggable forecast backends. Every backend returns the same thing: `(H, Q)` quantiles on
  * Timestral's 21 levels, so the conformal engine does not care where they came from.
+ * Models trained on fewer levels (Chronos-Bolt: 0.1, ..., 0.9) are mapped onto that grid by
+ * `toQuantileGrid`.
  *
- * - `BrowserBackend`: the TypeScript port in a web worker (works on GitHub Pages).
- * - `ServerBackend`: `server/serve.py`, the official PyTorch package on localhost.
+ * - `BrowserBackend`: the TypeScript ports (Timestral, Chronos-Bolt) in a web worker (works
+ *   on GitHub Pages).
+ * - `ServerBackend`: `server/serve.py`, the official PyTorch packages on localhost.
  * - `NaiveBackend`: a model-free baseline (last value plus empirical k-step changes), so the
  *   dashboard is usable before any weights are downloaded.
  */
 
+import { FAMILY_NAMES, type ModelFamily, familyOf } from "./registry";
 import type { WorkerIn, WorkerOut } from "./worker";
 
 export const TIMESTRAL_LEVELS = [0.01, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 0.99];
+
+/**
+ * Map `(H, Q)` quantiles on `levels` onto `grid`. Inside the model's range this interpolates
+ * linearly, as `ChronosBoltPipeline.predict_quantiles` does. Beyond it (Chronos-Bolt has no
+ * 1%, 5%, 95% or 99% quantile) each tail is extended with a Gaussian shape fitted to the
+ * outermost quantile and the median on that side, instead of clamping: clamping would turn
+ * the native 90% band into an 80% one. Crossing quantiles (Chronos-Bolt does not prevent them)
+ * are sorted first.
+ */
+export function toQuantileGrid(q: Float32Array, horizon: number, levels: number[], grid: number[] = TIMESTRAL_LEVELS): Float32Array {
+  const Q = levels.length, G = grid.length;
+  if (Q === G && levels.every((l, i) => Math.abs(l - grid[i]) < 1e-9)) return q;
+  const lo = levels[0], hi = levels[Q - 1];
+  const zLo = normInv(lo), zHi = normInv(hi);
+  const out = new Float32Array(horizon * G);
+  const row = new Float32Array(Q);
+  const at = (p: number): number => {
+    let i = 1;
+    while (i < Q - 1 && levels[i] < p) i++;
+    const w = (p - levels[i - 1]) / (levels[i] - levels[i - 1]);
+    return row[i - 1] * (1 - w) + row[i] * w;
+  };
+  for (let t = 0; t < horizon; t++) {
+    row.set(q.subarray(t * Q, (t + 1) * Q));
+    row.sort();
+    const med = lo < 0.5 && hi > 0.5 ? at(0.5) : NaN;
+    // Spread per unit of z on each side; zero (clamping) when the tail cannot be fitted.
+    const sLo = Number.isFinite(med) ? (med - row[0]) / -zLo : 0;
+    const sHi = Number.isFinite(med) ? (row[Q - 1] - med) / zHi : 0;
+    for (let g = 0; g < G; g++) {
+      const p = grid[g];
+      let v: number;
+      if (p < lo) v = row[0] + sLo * (normInv(p) - zLo);
+      else if (p > hi) v = row[Q - 1] + sHi * (normInv(p) - zHi);
+      else v = at(p);
+      out[t * G + g] = v;
+    }
+  }
+  return out;
+}
+
+/** Clip quantiles at 0 when every observed context value is non-negative (Timestral's rule). */
+export function clipNonnegative(q: Float32Array, context: ArrayLike<number>): void {
+  let any = false;
+  for (let t = 0; t < context.length; t++) {
+    const v = context[t];
+    if (!Number.isFinite(v)) continue;
+    if (v < 0) return;
+    any = true;
+  }
+  if (any) for (let i = 0; i < q.length; i++) if (q[i] < 0) q[i] = 0;
+}
+
+/** Bring a result onto the shared grid; only results off the grid are touched. */
+function adapt(res: ForecastResult, req: ForecastRequest): ForecastResult {
+  if (res.levels.length === TIMESTRAL_LEVELS.length && res.levels.every((l, i) => Math.abs(l - TIMESTRAL_LEVELS[i]) < 1e-9)) return res;
+  const quantiles = toQuantileGrid(res.quantiles, res.horizon, res.levels);
+  if (req.clip) clipNonnegative(quantiles, req.context.subarray(Math.max(0, req.context.length - req.maxContext)));
+  return { ...res, quantiles, levels: TIMESTRAL_LEVELS };
+}
 
 export interface ForecastRequest {
   context: Float64Array;
@@ -30,6 +94,8 @@ export interface ForecastResult {
 export interface Backend {
   readonly kind: "browser" | "server" | "naive";
   readonly label: string;
+  /** Name of the model whose native quantiles this backend serves, e.g. "Chronos-Bolt". */
+  readonly modelName: string;
   readonly ready: boolean;
   forecast(req: ForecastRequest): Promise<ForecastResult>;
   dispose(): void;
@@ -44,11 +110,12 @@ export interface LoadProgress {
 export class BrowserBackend implements Backend {
   readonly kind = "browser" as const;
   label = "Timestral (browser)";
+  family: ModelFamily = "timestral";
   ready = false;
   numParams = 0;
   private worker: Worker;
   private nextId = 1;
-  private pending = new Map<number, { resolve: (r: ForecastResult) => void; reject: (e: Error) => void }>();
+  private pending = new Map<number, { req: ForecastRequest; resolve: (r: ForecastResult) => void; reject: (e: Error) => void }>();
   private loadWaiter: { resolve: () => void; reject: (e: Error) => void } | null = null;
   onProgress: (p: LoadProgress) => void = () => {};
   onCached: (repos: string[]) => void = () => {};
@@ -57,6 +124,10 @@ export class BrowserBackend implements Backend {
     this.worker = new Worker(new URL("./worker.ts", import.meta.url), { type: "module" });
     this.worker.onmessage = (ev: MessageEvent<WorkerOut>) => this.handle(ev.data);
     this.send({ type: "listCached" });
+  }
+
+  get modelName(): string {
+    return FAMILY_NAMES[this.family];
   }
 
   private send(m: WorkerIn, transfer: Transferable[] = []) {
@@ -71,6 +142,7 @@ export class BrowserBackend implements Backend {
       case "ready":
         this.ready = true;
         this.label = m.label;
+        this.family = m.family;
         this.numParams = m.numParams;
         this.loadWaiter?.resolve();
         this.loadWaiter = null;
@@ -79,7 +151,7 @@ export class BrowserBackend implements Backend {
       case "result": {
         const p = this.pending.get(m.id);
         this.pending.delete(m.id);
-        p?.resolve({ quantiles: m.quantiles, levels: m.levels, horizon: m.horizon, ms: m.ms });
+        p?.resolve(adapt({ quantiles: m.quantiles, levels: m.levels, horizon: m.horizon, ms: m.ms }, p.req));
         break;
       }
       case "error":
@@ -122,7 +194,7 @@ export class BrowserBackend implements Backend {
   forecast(req: ForecastRequest): Promise<ForecastResult> {
     const id = this.nextId++;
     return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
+      this.pending.set(id, { req, resolve, reject });
       const context = req.context.slice();
       this.send({ type: "forecast", id, context, horizon: req.horizon, symmetric: req.symmetric, clip: req.clip, maxContext: req.maxContext }, [context.buffer]);
     });
@@ -138,8 +210,10 @@ export class ServerBackend implements Backend {
   ready = false;
   label: string;
   models: string[] = [];
+  readonly modelName: string;
   constructor(public url: string, public repo: string) {
     this.label = `${repo} (local server)`;
+    this.modelName = FAMILY_NAMES[familyOf(repo) ?? "timestral"];
   }
 
   async connect(): Promise<string[]> {
@@ -170,7 +244,7 @@ export class ServerBackend implements Backend {
     const Q = body.levels.length;
     const q = new Float32Array(req.horizon * Q);
     body.quantiles.forEach((row, t) => q.set(row, t * Q));
-    return { quantiles: q, levels: body.levels, horizon: req.horizon, ms: performance.now() - t0 };
+    return adapt({ quantiles: q, levels: body.levels, horizon: req.horizon, ms: performance.now() - t0 }, req);
   }
 
   dispose() {}
@@ -191,6 +265,7 @@ export const NAIVE_DAMPING = 0.9;
 export class NaiveBackend implements Backend {
   readonly kind = "naive" as const;
   readonly label = "Naive baseline (no model)";
+  readonly modelName = "Naive";
   readonly ready = true;
 
   async forecast(req: ForecastRequest): Promise<ForecastResult> {
