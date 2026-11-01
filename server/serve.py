@@ -1,4 +1,4 @@
-"""Local forecast server for cTimestral, backed by the official Timestral package.
+"""Local forecast server for Timestral Uncertainty Arena, backed by the official Timestral package.
 
 Use it for the larger checkpoints (123M, 209M) or a GPU, where the in-browser port is slow.
 
@@ -108,7 +108,7 @@ def main() -> None:
     DEVICE = args.device
     for repo in args.preload:
         get_model(repo)
-    print(f"cTimestral server on http://{args.host}:{args.port} (device={DEVICE})")
+    print(f"Timestral Uncertainty Arena server on http://{args.host}:{args.port} (device={DEVICE})")
     ThreadingHTTPServer((args.host, args.port), Handler).serve_forever()
 
 

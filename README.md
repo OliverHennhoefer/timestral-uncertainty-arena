@@ -1,13 +1,13 @@
-# cTimestral
+# Timestral Uncertainty Arena
 
 Draw a time series with the mouse. [Timestral](https://huggingface.co/collections/mistralai/timestral) forecasts every new step in your browser, online conformal and Bayesian methods calibrate its intervals live, and a ranking compares them as you draw.
 
-![Drawing a series in cTimestral](docs/demo.gif)
+![Drawing a series in Timestral Uncertainty Arena](docs/demo.gif)
 
 <details>
 <summary>Full dashboard</summary>
 
-![cTimestral dashboard: plot, rolling and per-lead coverage and width, ranking](docs/dashboard.png)
+![Timestral Uncertainty Arena dashboard: plot, rolling and per-lead coverage and width, ranking](docs/dashboard.png)
 
 </details>
 
