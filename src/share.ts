@@ -220,7 +220,7 @@ export async function decodeScenario(code: string, defaults: Settings): Promise<
     enabled: Object.fromEntries(known.map((id) => [id, on.has(id)])),
     params,
   };
-  const align: Align = w.al === "calibrate" || w.al === "cut" ? w.al : "full";
+  const align: Align = w.al === "full" || w.al === "calibrate" ? w.al : "cut";
   return {
     series,
     model,
