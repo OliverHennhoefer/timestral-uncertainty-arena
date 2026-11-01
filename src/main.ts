@@ -498,7 +498,25 @@ function uncertainty(): Map<string, Uncertainty> {
   return uncCache.value;
 }
 
-let leadsBeforeCalibrate: number | null = null;
+// Persisted so a reload while in "calibrate" can still restore the user's own choice.
+const LEADS_KEY = "ctimestral-leads-before-calibrate";
+let leadsBeforeCalibrate: number | null = (() => {
+  try {
+    const v = Number(localStorage.getItem(LEADS_KEY));
+    return Number.isInteger(v) && v > 0 ? v : null;
+  } catch {
+    return null;
+  }
+})();
+function storeLeadsBefore(v: number | null) {
+  leadsBeforeCalibrate = v;
+  try {
+    if (v === null) localStorage.removeItem(LEADS_KEY);
+    else localStorage.setItem(LEADS_KEY, String(v));
+  } catch {
+    /* storage unavailable */
+  }
+}
 
 /** Apply the horizon-alignment choice: tie the calibrated leads to the horizon, or not. */
 function applyAlign() {
@@ -506,7 +524,7 @@ function applyAlign() {
   const hint = $("align-hint");
   if (align === "calibrate") {
     if (engine.settings.evalLeads !== horizon) {
-      if (leadsBeforeCalibrate === null) leadsBeforeCalibrate = engine.settings.evalLeads;
+      if (leadsBeforeCalibrate === null) storeLeadsBefore(engine.settings.evalLeads);
       applySettings({ evalLeads: horizon });
       renderLeadOptions();
     }
@@ -517,7 +535,7 @@ function applyAlign() {
     // Leaving "calibrate" restores the calibrated leads the user had before.
     if (leadsBeforeCalibrate !== null) {
       const prev = leadsBeforeCalibrate;
-      leadsBeforeCalibrate = null;
+      storeLeadsBefore(null);
       if (prev !== engine.settings.evalLeads) {
         applySettings({ evalLeads: prev });
         renderLeadOptions();
