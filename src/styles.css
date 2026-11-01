@@ -119,7 +119,7 @@ select {
 }
 button { cursor: pointer; transition: background 0.15s, opacity 0.15s, color 0.15s; }
 button:hover { background: var(--line-strong); }
-button.ghost { background: transparent; color: var(--muted); }
+button.ghost { background: transparent; color: var(--muted); white-space: nowrap; }
 button.ghost:hover { background: var(--fill); color: var(--ink); }
 button.primary { background: var(--accent); color: #fff; font-weight: 500; border-radius: 999px; padding: 6px 16px; min-width: 68px; }
 button.primary:hover { opacity: 0.88; background: var(--accent); }

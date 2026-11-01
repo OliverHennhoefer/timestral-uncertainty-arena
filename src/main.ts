@@ -8,6 +8,7 @@ import { type Backend, BrowserBackend, NaiveBackend, ServerBackend } from "./mod
 import { FAMILY_NAMES, MODELS, type ModelFamily } from "./model/registry";
 import { DATASETS } from "./datasets";
 import { PRESETS as SYNTHETIC } from "./synthetic";
+import { type Align, HASH_KEY, type ModelRef, type Scenario, type SeriesRef, decodeScenario, encodeScenario, scenarioFromHash, seriesHash } from "./share";
 import { FONT, cssVar, fitCanvas, lineChart, withAlpha } from "./ui/plot";
 import { Extent, FIXED_RANGE, type YMode, fitRange, niceTicks, zoomRange } from "./ui/yaxis";
 
@@ -33,7 +34,6 @@ let horizon = 64;
  * "calibrate" sets the calibrated leads to the horizon so conformal covers every lead,
  * "cut" (default) trims the drawn native forecast to where the conformal bands end.
  */
-type Align = "full" | "calibrate" | "cut";
 let align: Align = (() => {
   try {
     // v2: the default changed to an aligned view, so an old stored "full" default is not reused.
@@ -88,6 +88,19 @@ let playing = false;
 let playTimer: number | null = null;
 let playData: number[] = [];
 let playIdx = 0;
+/** The preset stream in playData, so a link can name it instead of carrying every point. */
+let streamRef: { id: string; seed: number } | null = null;
+/** Pause the stream at this index (a shared link replays up to where it was shared). */
+let playStopAt: number | null = null;
+/** A shared scenario is loaded and starts playing once its model is ready. */
+let pendingReplay = false;
+/** Browser checkpoint a shared link asked for, loaded once the cache listing arrives. */
+let wantRepo: string | null = null;
+/**
+ * The link names a browser checkpoint that is not loaded yet: hold the replay until it is,
+ * or until the user picks a backend or checkpoint themselves, so it never runs on the wrong model.
+ */
+let replayNeedsModel = false;
 let backfilling = false;
 
 const NAMES: Record<string, string> = { [NATIVE_ID]: "Timestral native", ...Object.fromEntries(METHODS.map((m) => [m.id, m.name])) };
@@ -289,6 +302,7 @@ canvas.addEventListener("pointerdown", (e) => {
     return;
   }
   if (playing) togglePlay();
+  pendingReplay = false;
   setFollow(true);
   drawing = true;
   canvas.setPointerCapture(e.pointerId);
@@ -503,8 +517,9 @@ document.addEventListener("fullscreenchange", () => {
 function togglePlay() {
   playing = !playing;
   $("btn-play").textContent = playing ? "Pause" : "Play";
+  pendingReplay = false;
   if (playing) {
-    if (playIdx >= playData.length || engine.series.length === 0) startStream();
+    if (playIdx >= playData.length || (engine.series.length === 0 && playIdx > 0)) startStream();
     tick();
   } else if (playTimer !== null) {
     clearTimeout(playTimer);
@@ -512,14 +527,16 @@ function togglePlay() {
   }
 }
 
-function startStream() {
+function startStream(seed = Math.floor(Math.random() * 1e9)) {
   const preset = PRESETS.find((p) => p.id === $<HTMLSelectElement>("preset").value) ?? PRESETS[0];
   engine.clear();
   seriesOffset = 0;
   view.start = 0;
   setFollow(true);
-  playData = preset.make(2000, Math.floor(Math.random() * 1e9));
+  playData = preset.make(2000, seed);
   playIdx = 0;
+  playStopAt = null;
+  streamRef = { id: preset.id, seed };
   $("draw-hint").classList.add("hidden");
 }
 
@@ -529,7 +546,8 @@ function tick() {
   // Lockstep: wait for the forecast of the newest origin so every origin is scored.
   const waiting = backend.ready && (inFlight || engine.latestOrigin() < engine.series.length - 1);
   if (!waiting) {
-    if (playIdx >= playData.length) {
+    if (playIdx >= playData.length || (playStopAt !== null && playIdx >= playStopAt)) {
+      playStopAt = null;
       togglePlay();
       return;
     }
@@ -1071,6 +1089,7 @@ function ensureBrowserBackend(): BrowserBackend {
     browserBackend.onCached = (repos) => {
       cachedRepos = new Set(repos);
       renderModels();
+      if (wantRepo) useSharedRepo();
     };
     browserBackend.onProgress = (p) => {
       const box = $("dl-progress");
@@ -1099,6 +1118,7 @@ async function loadBrowserModel(repo: string) {
   setPill();
   renderModels();
   resetForecasts();
+  maybeStartReplay(true);
 }
 
 async function loadFromFiles(files: FileList) {
@@ -1121,6 +1141,7 @@ async function loadFromFiles(files: FileList) {
   setPill();
   renderModels();
   resetForecasts();
+  maybeStartReplay(true);
 }
 
 async function connectServer() {
@@ -1136,6 +1157,7 @@ async function connectServer() {
   }
   setPill();
   resetForecasts();
+  maybeStartReplay(true);
 }
 
 function bindControls() {
@@ -1147,10 +1169,13 @@ function bindControls() {
   $("btn-play").addEventListener("click", togglePlay);
   preset.addEventListener("change", () => {
     if (playing) togglePlay();
+    pendingReplay = false;
     playIdx = playData.length;
   });
   $("btn-clear").addEventListener("click", () => {
     if (playing) togglePlay();
+    pendingReplay = false;
+    streamRef = null;
     engine.clear();
     seriesOffset = 0;
     view.start = 0;
@@ -1160,6 +1185,8 @@ function bindControls() {
     requestRender();
   });
   $("btn-backfill").addEventListener("click", backfill);
+  $("btn-share").addEventListener("click", copyLink);
+  window.addEventListener("hashchange", restoreFromHash);
   $("rank-table").addEventListener("click", (e) => {
     const row = (e.target as HTMLElement).closest<HTMLElement>("tr[data-id]");
     if (row) setFocus(row.dataset.id!);
@@ -1184,6 +1211,7 @@ function bindControls() {
         resetForecasts();
       }
     }
+    maybeStartReplay(true);
   });
   $<HTMLSelectElement>("server-model").innerHTML = (Object.keys(FAMILY_NAMES) as ModelFamily[])
     .map((f) => `<optgroup label="${FAMILY_NAMES[f]}">${MODELS.filter((m) => m.family === f).map((m) => `<option value="${m.repo}">${m.label}</option>`).join("")}</optgroup>`)
@@ -1239,26 +1267,22 @@ function bindControls() {
     resetForecasts();
   });
 
-  const s = engine.settings;
   const alpha = $<HTMLInputElement>("alpha");
-  alpha.value = String(s.alpha);
-  $("alpha-val").textContent = `${s.alpha.toFixed(2)} (target ${((1 - s.alpha) * 100).toFixed(0)}%)`;
   alpha.addEventListener("input", () => {
     const a = Number(alpha.value);
-    $("alpha-val").textContent = `${a.toFixed(2)} (target ${((1 - a) * 100).toFixed(0)}%)`;
+    $("alpha-val").textContent = alphaLabel(a);
     applySettings({ alpha: a });
   });
   const scoreSel = $<HTMLSelectElement>("score-type");
-  scoreSel.value = s.scoreType;
   scoreSel.addEventListener("change", () => applySettings({ scoreType: scoreSel.value as ScoreType }));
   const num = (id: string, key: "evalLeads" | "window" | "warmup" | "rolling") => {
     const el = $<HTMLInputElement>(id);
-    el.value = String(s[key]);
     el.addEventListener("change", () => {
       const v = Math.max(Number(el.min) || 1, Math.round(Number(el.value)));
       if (Number.isFinite(v)) applySettings({ [key]: v } as Partial<Settings>);
     });
   };
+  syncSettingControls();
   num("eval-leads", "evalLeads");
   $("eval-leads").addEventListener("change", () => {
     renderLeadOptions();
@@ -1305,6 +1329,207 @@ function bindControls() {
     renderLegend();
     requestRender();
   });
+}
+
+const alphaLabel = (a: number) => `${a.toFixed(2)} (target ${((1 - a) * 100).toFixed(0)}%)`;
+
+/** Write the conformal settings into their controls (on start and after opening a link). */
+function syncSettingControls() {
+  const s = engine.settings;
+  $<HTMLInputElement>("alpha").value = String(s.alpha);
+  $("alpha-val").textContent = alphaLabel(s.alpha);
+  $<HTMLSelectElement>("score-type").value = s.scoreType;
+  $<HTMLInputElement>("eval-leads").value = String(s.evalLeads);
+  $<HTMLInputElement>("window").value = String(s.window);
+  $<HTMLInputElement>("warmup").value = String(s.warmup);
+  $<HTMLInputElement>("rolling").value = String(s.rolling);
+}
+
+// ---------------------------------------------------------------------------------------
+// Shareable links: the scenario lives in the URL hash (see share.ts).
+
+function currentScenario(): Scenario {
+  const y = engine.series;
+  let series: SeriesRef;
+  if (!y.length) series = { kind: "empty" };
+  else if (streamRef && seriesOffset === 0 && y.length <= playData.length && y.every((v, i) => v === playData[i]))
+    series = { kind: "preset", ...streamRef, n: y.length, hash: seriesHash(y) };
+  else series = { kind: "values", values: y, offset: seriesOffset };
+  const model: ModelRef =
+    backend instanceof ServerBackend
+      ? { backend: "server", repo: backend.repo }
+      : backend.kind === "browser"
+        ? { backend: "browser", repo: activeRepo }
+        : { backend: "naive" };
+  return {
+    series,
+    model,
+    horizon,
+    maxContext,
+    symmetric,
+    clip,
+    align,
+    leadsBefore: align === "calibrate" ? leadsBeforeCalibrate : null,
+    settings: engine.settings,
+    rankBy,
+    rankLead,
+    focus: focusId,
+  };
+}
+
+async function copyLink() {
+  let url: string;
+  try {
+    url = `${location.origin}${location.pathname}${location.search}#${HASH_KEY}=${await encodeScenario(currentScenario())}`;
+  } catch (e) {
+    toast(`Could not make a link: ${e instanceof Error ? e.message : e}`);
+    return;
+  }
+  history.replaceState(null, "", url);
+  try {
+    await navigator.clipboard.writeText(url);
+    toast("Link copied. Opening it restores these settings and replays the series.");
+  } catch {
+    toast("The link is in the address bar; copy it from there.");
+  }
+}
+
+function modelLabel(repo: string): string {
+  const m = MODELS.find((x) => x.repo === repo);
+  return m ? `${m.label} (~${m.approxMB} MB)` : repo;
+}
+
+/** Load the browser checkpoint a link asked for if it is cached; otherwise ask for the download. */
+function useSharedRepo() {
+  const repo = wantRepo!;
+  wantRepo = null;
+  if (activeRepo === repo && browserBackend?.ready) {
+    backend = browserBackend;
+    setPill();
+    replayNeedsModel = false;
+    maybeStartReplay();
+  } else if (cachedRepos.has(repo)) {
+    loadBrowserModel(repo);
+  } else {
+    setPanel(true);
+    toast(`This scenario uses ${modelLabel(repo)}. Press Download under Model to replay it, or pick another backend.`, 10000);
+  }
+}
+
+function selectModel(m: ModelRef) {
+  const sel = $<HTMLSelectElement>("backend");
+  sel.value = m.backend;
+  $("browser-panel").classList.toggle("hidden", m.backend !== "browser");
+  $("server-panel").classList.toggle("hidden", m.backend !== "server");
+  if (m.backend === "naive") {
+    if (backend.kind !== "naive") backend = new NaiveBackend();
+  } else if (m.backend === "browser") {
+    const existed = browserBackend !== null;
+    backend = ensureBrowserBackend();
+    replayNeedsModel = true;
+    renderModels();
+    if (m.repo) {
+      wantRepo = m.repo;
+      if (existed) useSharedRepo(); // otherwise the cache listing triggers it
+    } else {
+      setPanel(true);
+      toast("This scenario used a checkpoint loaded from files. Load it under Model to replay it, or pick another backend.", 10000);
+    }
+  } else {
+    const repo = m.repo && MODELS.some((x) => x.repo === m.repo) ? m.repo : MODELS[0].repo;
+    $<HTMLSelectElement>("server-model").value = repo;
+    backend = new ServerBackend($<HTMLInputElement>("server-url").value, repo);
+    setPanel(true);
+    toast(`This scenario used ${repo} on the local server. Run server/serve.py and press Connect to replay it.`, 10000);
+  }
+  setPill();
+}
+
+/** `chosen`: the user (or the link's own checkpoint load) just picked the model to replay with. */
+function maybeStartReplay(chosen = false) {
+  if (chosen) replayNeedsModel = false;
+  if (!pendingReplay || replayNeedsModel || !backend.ready || playing) return;
+  pendingReplay = false;
+  togglePlay();
+}
+
+/** Open the scenario in the URL hash: apply its settings, select its model, replay its series. */
+async function restoreFromHash() {
+  const code = scenarioFromHash(location.hash);
+  if (!code) return;
+  let s: Scenario;
+  try {
+    s = await decodeScenario(code, defaultSettings());
+  } catch (e) {
+    toast(`Could not open this link: ${e instanceof Error ? e.message : e}`, 8000);
+    return;
+  }
+  if (playing) togglePlay();
+  pendingReplay = false;
+  replayNeedsModel = false;
+  wantRepo = null;
+
+  horizon = s.horizon;
+  $<HTMLSelectElement>("horizon").value = String(horizon);
+  maxContext = s.maxContext;
+  $<HTMLInputElement>("max-context").value = String(maxContext);
+  symmetric = s.symmetric;
+  $<HTMLInputElement>("symmetric").checked = symmetric;
+  clip = s.clip;
+  $<HTMLInputElement>("clip").checked = clip;
+  align = s.align;
+  $<HTMLSelectElement>("align").value = align;
+  try {
+    localStorage.setItem("ctimestral-align-v2", align);
+  } catch {
+    // ignore
+  }
+  storeLeadsBefore(s.leadsBefore);
+  engine.updateSettings(s.settings);
+  saveSettings();
+  syncSettingControls();
+  rankBy = s.rankBy;
+  $<HTMLSelectElement>("rank-by").value = rankBy;
+  rankLead = s.rankLead;
+  focusId = s.focus;
+  renderMethods();
+  renderLeadOptions();
+  applyAlign();
+  renderLegend();
+
+  // Series: replayed through the stream so every origin is forecast and scored as it arrives.
+  engine.clear();
+  view.start = 0;
+  setFollow(true);
+  if (yMode === "manual") setYMode(yAuto);
+  seriesOffset = 0;
+  playIdx = 0;
+  playStopAt = null;
+  streamRef = null;
+  playData = [];
+  if (s.series.kind === "preset") {
+    const ref = s.series;
+    const p = PRESETS.find((x) => x.id === ref.id);
+    if (!p) {
+      toast(`This link uses a stream ("${ref.id}") this version does not have.`, 8000);
+    } else {
+      $<HTMLSelectElement>("preset").value = p.id;
+      playData = p.make(2000, ref.seed);
+      playStopAt = Math.min(ref.n, playData.length);
+      streamRef = { id: p.id, seed: ref.seed };
+      if (seriesHash(playData.slice(0, playStopAt)) !== ref.hash) toast(`The "${p.label}" stream has changed since this link was made, so the replay differs.`, 8000);
+    }
+  } else if (s.series.kind === "values") {
+    playData = s.series.values;
+    seriesOffset = s.series.offset;
+    view.start = Math.max(0, seriesOffset - 20);
+  }
+  $("draw-hint").classList.toggle("hidden", playData.length > 0);
+  pendingReplay = playData.length > 0;
+
+  resetForecasts();
+  selectModel(s.model);
+  maybeStartReplay();
 }
 
 // ---------------------------------------------------------------------------------------
@@ -1356,6 +1581,7 @@ renderMethods();
 renderLegend();
 setPill();
 requestRender();
+restoreFromHash();
 
 // Dev-only handle for automated UI checks.
 if (import.meta.env.DEV) (window as unknown as { __ctimestral: unknown }).__ctimestral = { engine };

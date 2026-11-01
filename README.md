@@ -13,6 +13,8 @@ Draw a time series with the mouse. [Timestral](https://huggingface.co/collection
 
 The demo uses the built-in naive baseline. Pick a Timestral checkpoint (5M to 209M) in the settings panel to forecast with the real model, or [Chronos-Bolt](https://huggingface.co/amazon/chronos-bolt-small) (Tiny to Base) to run the same methods on a second foundation model. Both run in the browser.
 
+**Copy link** puts the current scenario in the URL: the drawn series (or the stream and its seed), the model, the enabled methods and their parameters, the score, α, the leads and the horizon alignment. Opening the link restores those settings and replays the series, so every forecast is issued and scored again. A Timestral checkpoint is loaded automatically if it is already in the browser cache; otherwise the page asks before downloading it.
+
 ## Run locally
 
 ```bash
