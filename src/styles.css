@@ -176,6 +176,18 @@ details.inline summary { cursor: pointer; margin-top: 8px; font-size: 12px; colo
 .plot-card { padding: 12px 12px 14px; }
 #main-canvas { width: 100%; height: clamp(320px, 50vh, 600px); display: block; border-radius: 12px; background: var(--plot-bg); touch-action: none; cursor: crosshair; }
 .chart { width: 100%; height: 200px; display: block; }
+
+/* Calibration: a collapsible card, computed only while open. */
+.calib > summary { cursor: pointer; display: flex; align-items: baseline; gap: 8px; }
+.calib > summary h3 { margin: 0; }
+.calib > summary::after { content: ""; align-self: center; width: 6px; height: 6px; margin-left: auto; border-right: 1.5px solid var(--muted); border-bottom: 1.5px solid var(--muted); transform: rotate(45deg); transition: transform 0.2s; }
+.calib:not([open]) > summary::after { transform: rotate(-45deg); }
+.calib[open] > summary { margin-bottom: 12px; }
+.calib h4 { font-size: 12px; font-weight: 500; margin: 0 0 8px; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.calib h4 .muted { font-weight: 400; }
+.rel-key { display: inline-flex; align-items: center; gap: 5px; margin-right: 10px; }
+.rel-key .line { width: 14px; height: 0; border-top: 2px solid; display: inline-block; }
+.rel-key .line.dash { border-top-style: dashed; }
 .hint { position: absolute; left: 50%; top: 45%; transform: translate(-50%, -50%); color: var(--muted); pointer-events: none; text-align: center; max-width: 70%; font-size: 14px; }
 .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex: none; }
 

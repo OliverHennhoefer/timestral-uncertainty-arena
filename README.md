@@ -31,6 +31,8 @@ python server/serve.py --port 8765
 
 Rolling split CP, ACI, DtACI, AgACI, quantile tracker, conformal PID, NexCP, ECI, SF-OGD, SAOCP, Bayesian belief CP, BOCPD (+ ACI), changepoint CP and discounted Bayes, all compared with Timestral's native quantile interval. References are listed with each method in the settings panel.
 
+The Calibration card under the ranking shows a PIT histogram of the native forecast and a reliability curve (nominal against empirical coverage over several α) for the native quantiles and the focused method, computed online from the same scored pairs.
+
 ## Licence
 
 Code: MIT. Timestral weights: Mistral AI, Modified MIT. The model port follows the official Apache-2.0 inference code.
