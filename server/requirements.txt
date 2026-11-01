@@ -1,0 +1,5 @@
+numpy
+torch>=2.4
+safetensors
+huggingface_hub
+timestral @ git+https://github.com/mistralai/timestral.git
