@@ -1,0 +1,4680 @@
+{
+ "schema": 1,
+ "run": "naive",
+ "createdAt": "2026-11-01T18:59:18.837Z",
+ "commit": "9a39a2f",
+ "model": {
+  "backend": "naive",
+  "id": "naive",
+  "label": "Naive baseline (no model)"
+ },
+ "config": {
+  "alpha": 0.1,
+  "evalLeads": 16,
+  "scoreType": "cqr",
+  "window": 100,
+  "warmup": 10,
+  "horizon": 16,
+  "maxContext": 256,
+  "symmetric": true,
+  "clip": true,
+  "length": 2000,
+  "seed": 1,
+  "bootstrap": 300,
+  "tolerance": 0.02
+ },
+ "methods": [
+  {
+   "id": "native",
+   "name": "Native interval",
+   "family": "model",
+   "guarantee": false,
+   "reference": "The model's own quantiles at α/2 and 1 − α/2",
+   "color": "#8E8E93",
+   "params": {}
+  },
+  {
+   "id": "split",
+   "name": "Rolling split CP",
+   "family": "conformal",
+   "guarantee": true,
+   "reference": "Vovk et al. 2005; rolling calibration window",
+   "color": "#007AFF",
+   "params": {}
+  },
+  {
+   "id": "aci",
+   "name": "ACI",
+   "family": "conformal",
+   "guarantee": true,
+   "reference": "Gibbs & Candès, NeurIPS 2021",
+   "color": "#FF9500",
+   "params": {
+    "gamma": 0.01
+   }
+  },
+  {
+   "id": "dtaci",
+   "name": "DtACI",
+   "family": "conformal",
+   "guarantee": true,
+   "reference": "Gibbs & Candès, JMLR 2024",
+   "color": "#A2845E",
+   "params": {
+    "interval": 100
+   }
+  },
+  {
+   "id": "agaci",
+   "name": "AgACI",
+   "family": "conformal",
+   "guarantee": true,
+   "reference": "Zaffran et al., ICML 2022",
+   "color": "#30B0C7",
+   "params": {}
+  },
+  {
+   "id": "qt",
+   "name": "Quantile tracker",
+   "family": "conformal",
+   "guarantee": true,
+   "reference": "Angelopoulos, Candès & Tibshirani, NeurIPS 2023",
+   "color": "#34C759",
+   "params": {
+    "lr": 0.05
+   }
+  },
+  {
+   "id": "pid",
+   "name": "Conformal PID",
+   "family": "conformal",
+   "guarantee": true,
+   "reference": "Angelopoulos, Candès & Tibshirani, NeurIPS 2023",
+   "color": "#5856D6",
+   "params": {
+    "lr": 0.05,
+    "ki": 0.5
+   }
+  },
+  {
+   "id": "nexcp",
+   "name": "NexCP",
+   "family": "conformal",
+   "guarantee": true,
+   "reference": "Barber, Candès, Ramdas & Tibshirani, Ann. Stat. 2023",
+   "color": "#AF52DE",
+   "params": {
+    "rho": 0.99
+   }
+  },
+  {
+   "id": "eci",
+   "name": "ECI",
+   "family": "conformal",
+   "guarantee": false,
+   "reference": "Wu, Hu, Bao, Xia & Zou, ICLR 2025",
+   "color": "#FF2D55",
+   "params": {
+    "lr": 0.05,
+    "c": 1,
+    "h": 0
+   }
+  },
+  {
+   "id": "sfogd",
+   "name": "SF-OGD",
+   "family": "conformal",
+   "guarantee": true,
+   "reference": "Orabona & Pál 2016; Bhatnagar et al., ICML 2023",
+   "color": "#C46A00",
+   "params": {}
+  },
+  {
+   "id": "saocp",
+   "name": "SAOCP",
+   "family": "conformal",
+   "guarantee": true,
+   "reference": "Bhatnagar, Wang, Xiong & Bai, ICML 2023",
+   "color": "#00C7BE",
+   "params": {
+    "g": 8
+   }
+  },
+  {
+   "id": "belief",
+   "name": "Bayesian belief CP",
+   "family": "bayesian",
+   "guarantee": false,
+   "reference": "Zhang, Bombara & Yang, \"The Benefit of Being Bayesian in Online Conformal Prediction\", 2024",
+   "color": "#D63AF9",
+   "params": {
+    "beta": 0.99
+   }
+  },
+  {
+   "id": "bocpd_aci",
+   "name": "BOCPD + ACI",
+   "family": "bayesian",
+   "guarantee": true,
+   "reference": "Adams & MacKay 2007; Gibbs & Candès 2021",
+   "color": "#FFCC00",
+   "params": {
+    "lambda": 250,
+    "gamma": 0.01
+   }
+  },
+  {
+   "id": "cpcp",
+   "name": "Changepoint CP",
+   "family": "bayesian",
+   "guarantee": false,
+   "reference": "Barber et al. 2023 weights from Adams & MacKay 2007",
+   "color": "#0A7E8C",
+   "params": {
+    "lambda": 250
+   }
+  },
+  {
+   "id": "bocpd",
+   "name": "BOCPD",
+   "family": "bayesian",
+   "guarantee": false,
+   "reference": "Adams & MacKay 2007",
+   "color": "#8E9A2F",
+   "params": {
+    "lambda": 250
+   }
+  },
+  {
+   "id": "nig",
+   "name": "Discounted Bayes",
+   "family": "bayesian",
+   "guarantee": false,
+   "reference": "West & Harrison 1997, discount variance learning",
+   "color": "#3A3A8C",
+   "params": {
+    "delta": 0.98
+   }
+  }
+ ],
+ "datasets": [
+  {
+   "id": "sine",
+   "label": "Seasonal + noise",
+   "group": "Synthetic",
+   "points": 2000,
+   "pairs": 31584,
+   "seconds": 8.3,
+   "rows": [
+    {
+     "id": "nexcp",
+     "n": 31584,
+     "coverage": 0.90983,
+     "gap": 0.00983,
+     "valid": true,
+     "meanWidth": 50.53917,
+     "intervalScore": 56.43496,
+     "rank": 1,
+     "tied": false,
+     "scoreRatio": 0.97872,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.90119, 0.91884],
+      "intervalScore": [55.60352, 57.21062]
+     },
+     "leadCoverage": [0.906, 0.9119, 0.9038, 0.9112, 0.9046, 0.9101, 0.9059, 0.9028, 0.9098, 0.9092, 0.9101, 0.9161, 0.913, 0.9119, 0.9097, 0.9214]
+    },
+    {
+     "id": "nig",
+     "n": 31584,
+     "coverage": 0.88988,
+     "gap": 0.01012,
+     "valid": true,
+     "meanWidth": 49.21186,
+     "intervalScore": 56.51296,
+     "rank": 1,
+     "tied": true,
+     "scoreRatio": 0.98008,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.88041, 0.89933],
+      "intervalScore": [55.51992, 57.44165]
+     },
+     "leadCoverage": [0.8778, 0.8777, 0.8761, 0.88, 0.8758, 0.8863, 0.8766, 0.88, 0.8839, 0.8899, 0.8888, 0.8937, 0.9053, 0.9083, 0.9184, 0.9204]
+    },
+    {
+     "id": "cpcp",
+     "n": 31584,
+     "coverage": 0.90369,
+     "gap": 0.00369,
+     "valid": true,
+     "meanWidth": 50.04239,
+     "intervalScore": 56.52507,
+     "rank": 1,
+     "tied": true,
+     "scoreRatio": 0.98029,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.89482, 0.9134],
+      "intervalScore": [55.58898, 57.35694]
+     },
+     "leadCoverage": [0.9035, 0.9029, 0.9003, 0.9062, 0.9011, 0.9035, 0.8983, 0.9003, 0.9027, 0.9026, 0.9096, 0.9115, 0.9023, 0.9012, 0.9072, 0.9061]
+    },
+    {
+     "id": "split",
+     "n": 31584,
+     "coverage": 0.90204,
+     "gap": 0.00204,
+     "valid": true,
+     "meanWidth": 50.07348,
+     "intervalScore": 56.62616,
+     "rank": 4,
+     "tied": false,
+     "scoreRatio": 0.98204,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.89285, 0.91144],
+      "intervalScore": [55.74489, 57.46282]
+     },
+     "leadCoverage": [0.9005, 0.9064, 0.8987, 0.9057, 0.895, 0.9005, 0.8988, 0.9003, 0.8981, 0.9036, 0.9025, 0.9044, 0.9008, 0.9047, 0.9016, 0.9112]
+    },
+    {
+     "id": "qt",
+     "n": 31584,
+     "coverage": 0.90071,
+     "gap": 0.00071,
+     "valid": true,
+     "meanWidth": 50.13959,
+     "intervalScore": 57.01832,
+     "rank": 5,
+     "tied": false,
+     "scoreRatio": 0.98884,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.89218, 0.90932],
+      "intervalScore": [56.11071, 57.81077]
+     },
+     "leadCoverage": [0.9045, 0.9029, 0.9008, 0.9012, 0.9011, 0.8999, 0.9014, 0.9013, 0.9027, 0.9016, 0.9005, 0.8998, 0.9008, 0.8981, 0.8975, 0.8974]
+    },
+    {
+     "id": "agaci",
+     "n": 31584,
+     "coverage": 0.90236,
+     "gap": 0.00236,
+     "valid": true,
+     "meanWidth": 50.39764,
+     "intervalScore": 57.02081,
+     "rank": 5,
+     "tied": true,
+     "scoreRatio": 0.98888,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.89384, 0.91102],
+      "intervalScore": [56.13583, 57.85762]
+     },
+     "leadCoverage": [0.903, 0.9024, 0.8987, 0.9032, 0.9021, 0.8989, 0.9044, 0.9053, 0.8976, 0.9016, 0.901, 0.9019, 0.9013, 0.9058, 0.9052, 0.9056]
+    },
+    {
+     "id": "aci",
+     "n": 31584,
+     "coverage": 0.89856,
+     "gap": 0.00144,
+     "valid": true,
+     "meanWidth": 49.97726,
+     "intervalScore": 57.02507,
+     "rank": 5,
+     "tied": true,
+     "scoreRatio": 0.98896,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.88922, 0.90809],
+      "intervalScore": [56.11054, 57.95071]
+     },
+     "leadCoverage": [0.8984, 0.8993, 0.8982, 0.8991, 0.8985, 0.8974, 0.8993, 0.8992, 0.8981, 0.898, 0.8974, 0.8988, 0.8992, 0.9002, 0.898, 0.8974]
+    },
+    {
+     "id": "belief",
+     "n": 31584,
+     "coverage": 0.93269,
+     "gap": 0.03269,
+     "valid": true,
+     "meanWidth": 53.09326,
+     "intervalScore": 57.33877,
+     "rank": 5,
+     "tied": true,
+     "scoreRatio": 0.9944,
+     "vsNative": 0,
+     "ci": {
+      "coverage": [0.92464, 0.94106],
+      "intervalScore": [56.57078, 58.07695]
+     },
+     "leadCoverage": [0.9432, 0.9366, 0.9275, 0.9274, 0.9384, 0.9353, 0.9388, 0.9473, 0.9387, 0.9356, 0.9259, 0.937, 0.9221, 0.9251, 0.9189, 0.925]
+    },
+    {
+     "id": "dtaci",
+     "n": 31584,
+     "coverage": 0.88814,
+     "gap": 0.01186,
+     "valid": true,
+     "meanWidth": 49.21854,
+     "intervalScore": 57.54947,
+     "rank": 9,
+     "tied": false,
+     "scoreRatio": 0.99805,
+     "vsNative": 0,
+     "ci": {
+      "coverage": [0.87765, 0.89763],
+      "intervalScore": [56.56782, 58.57575]
+     },
+     "leadCoverage": [0.8964, 0.8948, 0.8967, 0.8961, 0.8915, 0.8883, 0.8887, 0.8861, 0.8834, 0.8833, 0.8761, 0.8876, 0.8794, 0.8859, 0.8848, 0.8908]
+    },
+    {
+     "id": "pid",
+     "n": 31584,
+     "coverage": 0.90084,
+     "gap": 0.00084,
+     "valid": true,
+     "meanWidth": 50.40561,
+     "intervalScore": 57.57132,
+     "rank": 9,
+     "tied": true,
+     "scoreRatio": 0.99843,
+     "vsNative": 0,
+     "ci": {
+      "coverage": [0.89253, 0.90899],
+      "intervalScore": [56.59517, 58.42339]
+     },
+     "leadCoverage": [0.9045, 0.9034, 0.9013, 0.9007, 0.9016, 0.9005, 0.9019, 0.9023, 0.9022, 0.9011, 0.8999, 0.8993, 0.9003, 0.8991, 0.8975, 0.8979]
+    },
+    {
+     "id": "native",
+     "n": 31584,
+     "coverage": 0.88532,
+     "gap": 0.01468,
+     "valid": true,
+     "meanWidth": 47.90858,
+     "intervalScore": 57.66178,
+     "rank": 9,
+     "tied": true,
+     "scoreRatio": 1,
+     "vsNative": 0,
+     "ci": {
+      "coverage": [0.87624, 0.89584],
+      "intervalScore": [56.53777, 58.64403]
+     },
+     "leadCoverage": [0.8984, 0.919, 0.9325, 0.942, 0.9419, 0.9454, 0.9378, 0.9306, 0.9204, 0.9006, 0.8807, 0.8643, 0.8346, 0.81, 0.7654, 0.7376]
+    },
+    {
+     "id": "bocpd",
+     "n": 31584,
+     "coverage": 0.87608,
+     "gap": 0.02392,
+     "valid": false,
+     "meanWidth": 48.86009,
+     "intervalScore": 59.1177,
+     "rank": 12,
+     "tied": false,
+     "scoreRatio": 1.02525,
+     "vsNative": 1,
+     "ci": {
+      "coverage": [0.86646, 0.88662],
+      "intervalScore": [57.74951, 60.45833]
+     },
+     "leadCoverage": [0.8854, 0.8853, 0.8816, 0.8855, 0.8884, 0.8833, 0.8741, 0.8684, 0.8677, 0.8676, 0.8614, 0.8577, 0.8585, 0.8701, 0.8868, 0.8954]
+    },
+    {
+     "id": "bocpd_aci",
+     "n": 31584,
+     "coverage": 0.89729,
+     "gap": 0.00271,
+     "valid": true,
+     "meanWidth": 51.33948,
+     "intervalScore": 59.40401,
+     "rank": 12,
+     "tied": true,
+     "scoreRatio": 1.03021,
+     "vsNative": 1,
+     "ci": {
+      "coverage": [0.88762, 0.90693],
+      "intervalScore": [58.11185, 60.6083]
+     },
+     "leadCoverage": [0.8964, 0.8988, 0.8972, 0.8976, 0.8975, 0.8979, 0.8978, 0.8972, 0.8966, 0.896, 0.8959, 0.8963, 0.8972, 0.8981, 0.8975, 0.8984]
+    },
+    {
+     "id": "eci",
+     "n": 31584,
+     "coverage": 0.83783,
+     "gap": 0.06217,
+     "valid": false,
+     "meanWidth": 46.21313,
+     "intervalScore": 60.2709,
+     "rank": 14,
+     "tied": false,
+     "scoreRatio": 1.04525,
+     "vsNative": 1,
+     "ci": {
+      "coverage": [0.82712, 0.84811],
+      "intervalScore": [58.86479, 61.64576]
+     },
+     "leadCoverage": [0.8446, 0.844, 0.8433, 0.8396, 0.838, 0.8373, 0.8351, 0.8349, 0.8353, 0.8366, 0.8339, 0.8358, 0.8351, 0.8375, 0.8368, 0.8372]
+    },
+    {
+     "id": "sfogd",
+     "n": 31584,
+     "coverage": 0.89928,
+     "gap": 0.00072,
+     "valid": true,
+     "meanWidth": 57.10619,
+     "intervalScore": 67.6277,
+     "rank": 15,
+     "tied": false,
+     "scoreRatio": 1.17283,
+     "vsNative": 1,
+     "ci": {
+      "coverage": [0.89024, 0.90868],
+      "intervalScore": [64.70458, 71.04384]
+     },
+     "leadCoverage": [0.8979, 0.8993, 0.8992, 0.8996, 0.8985, 0.8974, 0.9014, 0.9013, 0.8976, 0.9006, 0.902, 0.9029, 0.9023, 0.9017, 0.8939, 0.8928]
+    },
+    {
+     "id": "saocp",
+     "n": 31584,
+     "coverage": 0.79214,
+     "gap": 0.10786,
+     "valid": false,
+     "meanWidth": 46.82697,
+     "intervalScore": 79.85403,
+     "rank": 16,
+     "tied": false,
+     "scoreRatio": 1.38487,
+     "vsNative": 1,
+     "ci": {
+      "coverage": [0.78294, 0.80192],
+      "intervalScore": [77.43504, 82.12717]
+     },
+     "leadCoverage": [0.8889, 0.8837, 0.8836, 0.8669, 0.8536, 0.8363, 0.8154, 0.7909, 0.7719, 0.7615, 0.7339, 0.7209, 0.7196, 0.7147, 0.7012, 0.7264]
+    }
+   ]
+  },
+  {
+   "id": "trend",
+   "label": "Trend + two seasons",
+   "group": "Synthetic",
+   "points": 2000,
+   "pairs": 31584,
+   "seconds": 7.6,
+   "rows": [
+    {
+     "id": "cpcp",
+     "n": 31584,
+     "coverage": 0.90365,
+     "gap": 0.00365,
+     "valid": true,
+     "meanWidth": 49.50188,
+     "intervalScore": 54.7941,
+     "rank": 1,
+     "tied": false,
+     "scoreRatio": 0.65746,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.89411, 0.91303],
+      "intervalScore": [54.02878, 55.54923]
+     },
+     "leadCoverage": [0.9015, 0.9054, 0.8987, 0.9047, 0.9031, 0.903, 0.909, 0.9114, 0.9062, 0.9061, 0.905, 0.9049, 0.9023, 0.9002, 0.9016, 0.8954]
+    },
+    {
+     "id": "nexcp",
+     "n": 31584,
+     "coverage": 0.90824,
+     "gap": 0.00824,
+     "valid": true,
+     "meanWidth": 49.86099,
+     "intervalScore": 54.86088,
+     "rank": 1,
+     "tied": true,
+     "scoreRatio": 0.65826,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.89928, 0.91691],
+      "intervalScore": [54.10732, 55.60729]
+     },
+     "leadCoverage": [0.912, 0.9104, 0.9043, 0.9102, 0.9112, 0.907, 0.91, 0.9104, 0.9118, 0.9102, 0.9106, 0.9075, 0.9084, 0.9012, 0.9046, 0.902]
+    },
+    {
+     "id": "nig",
+     "n": 31584,
+     "coverage": 0.90394,
+     "gap": 0.00394,
+     "valid": true,
+     "meanWidth": 49.73736,
+     "intervalScore": 54.86259,
+     "rank": 1,
+     "tied": true,
+     "scoreRatio": 0.65828,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.89531, 0.91237],
+      "intervalScore": [54.10534, 55.60659]
+     },
+     "leadCoverage": [0.8869, 0.8832, 0.8836, 0.8931, 0.8889, 0.901, 0.9064, 0.9175, 0.9174, 0.9168, 0.9192, 0.9202, 0.915, 0.9083, 0.9067, 0.8994]
+    },
+    {
+     "id": "bocpd",
+     "n": 31584,
+     "coverage": 0.90843,
+     "gap": 0.00843,
+     "valid": true,
+     "meanWidth": 50.15069,
+     "intervalScore": 54.90636,
+     "rank": 4,
+     "tied": false,
+     "scoreRatio": 0.6588,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.90005, 0.91726],
+      "intervalScore": [54.1568, 55.63169]
+     },
+     "leadCoverage": [0.8829, 0.8933, 0.8877, 0.8936, 0.899, 0.9045, 0.911, 0.9266, 0.9219, 0.9214, 0.9208, 0.9283, 0.9196, 0.9114, 0.9123, 0.9015]
+    },
+    {
+     "id": "split",
+     "n": 31584,
+     "coverage": 0.90084,
+     "gap": 0.00084,
+     "valid": true,
+     "meanWidth": 49.51166,
+     "intervalScore": 54.98214,
+     "rank": 4,
+     "tied": true,
+     "scoreRatio": 0.65971,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.89104, 0.90976],
+      "intervalScore": [54.1642, 55.7481]
+     },
+     "leadCoverage": [0.9035, 0.9009, 0.9013, 0.9042, 0.9046, 0.8999, 0.9044, 0.9028, 0.9052, 0.9001, 0.906, 0.8973, 0.8977, 0.8976, 0.8965, 0.8913]
+    },
+    {
+     "id": "bocpd_aci",
+     "n": 31584,
+     "coverage": 0.89947,
+     "gap": 0.00053,
+     "valid": true,
+     "meanWidth": 49.52803,
+     "intervalScore": 55.10954,
+     "rank": 6,
+     "tied": false,
+     "scoreRatio": 0.66124,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.8902, 0.90819],
+      "intervalScore": [54.25569, 55.88604]
+     },
+     "leadCoverage": [0.8999, 0.8973, 0.8977, 0.8991, 0.8975, 0.8989, 0.9004, 0.8987, 0.8996, 0.8985, 0.901, 0.8998, 0.9008, 0.9007, 0.9016, 0.8999]
+    },
+    {
+     "id": "belief",
+     "n": 31584,
+     "coverage": 0.92233,
+     "gap": 0.02233,
+     "valid": true,
+     "meanWidth": 50.89263,
+     "intervalScore": 55.13222,
+     "rank": 6,
+     "tied": true,
+     "scoreRatio": 0.66151,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.91278, 0.93169],
+      "intervalScore": [54.42263, 55.80298]
+     },
+     "leadCoverage": [0.9452, 0.9285, 0.932, 0.9284, 0.9258, 0.9186, 0.9216, 0.922, 0.9149, 0.9158, 0.9203, 0.9207, 0.9155, 0.9165, 0.9153, 0.9158]
+    },
+    {
+     "id": "agaci",
+     "n": 31584,
+     "coverage": 0.90555,
+     "gap": 0.00555,
+     "valid": true,
+     "meanWidth": 50.06825,
+     "intervalScore": 55.19814,
+     "rank": 6,
+     "tied": true,
+     "scoreRatio": 0.66231,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.89644, 0.9138],
+      "intervalScore": [54.39917, 55.91463]
+     },
+     "leadCoverage": [0.903, 0.9049, 0.9028, 0.9007, 0.899, 0.906, 0.9064, 0.9053, 0.9062, 0.9046, 0.9055, 0.9059, 0.9074, 0.9098, 0.9097, 0.9117]
+    },
+    {
+     "id": "dtaci",
+     "n": 31584,
+     "coverage": 0.89435,
+     "gap": 0.00565,
+     "valid": true,
+     "meanWidth": 49.23583,
+     "intervalScore": 55.22422,
+     "rank": 6,
+     "tied": true,
+     "scoreRatio": 0.66262,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.88489, 0.90327],
+      "intervalScore": [54.40956, 56.03952]
+     },
+     "leadCoverage": [0.8979, 0.8968, 0.8982, 0.8951, 0.893, 0.8934, 0.8953, 0.8927, 0.8991, 0.894, 0.8969, 0.8943, 0.8957, 0.8905, 0.8848, 0.8918]
+    },
+    {
+     "id": "qt",
+     "n": 31584,
+     "coverage": 0.8971,
+     "gap": 0.0029,
+     "valid": true,
+     "meanWidth": 49.30967,
+     "intervalScore": 55.25293,
+     "rank": 6,
+     "tied": true,
+     "scoreRatio": 0.66296,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.88703, 0.90655],
+      "intervalScore": [54.35843, 56.06764]
+     },
+     "leadCoverage": [0.903, 0.8983, 0.8987, 0.9012, 0.8985, 0.8989, 0.8973, 0.8962, 0.8951, 0.8945, 0.8969, 0.8937, 0.8947, 0.8956, 0.8939, 0.8969]
+    },
+    {
+     "id": "aci",
+     "n": 31584,
+     "coverage": 0.899,
+     "gap": 0.001,
+     "valid": true,
+     "meanWidth": 49.67939,
+     "intervalScore": 55.29603,
+     "rank": 11,
+     "tied": false,
+     "scoreRatio": 0.66348,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.88928, 0.90809],
+      "intervalScore": [54.47983, 56.05695]
+     },
+     "leadCoverage": [0.9005, 0.8983, 0.8997, 0.8991, 0.899, 0.8989, 0.8988, 0.8987, 0.8996, 0.898, 0.8989, 0.8973, 0.8987, 0.8991, 0.899, 0.8999]
+    },
+    {
+     "id": "pid",
+     "n": 31584,
+     "coverage": 0.89748,
+     "gap": 0.00252,
+     "valid": true,
+     "meanWidth": 49.54609,
+     "intervalScore": 55.39355,
+     "rank": 11,
+     "tied": true,
+     "scoreRatio": 0.66465,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.88799, 0.90584],
+      "intervalScore": [54.49424, 56.17571]
+     },
+     "leadCoverage": [0.903, 0.8983, 0.8992, 0.9012, 0.899, 0.8994, 0.8973, 0.8967, 0.8961, 0.8955, 0.8969, 0.8937, 0.8962, 0.8956, 0.895, 0.8964]
+    },
+    {
+     "id": "eci",
+     "n": 31584,
+     "coverage": 0.83574,
+     "gap": 0.06426,
+     "valid": false,
+     "meanWidth": 46.25972,
+     "intervalScore": 57.23546,
+     "rank": 13,
+     "tied": false,
+     "scoreRatio": 0.68675,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.82556, 0.84409],
+      "intervalScore": [56.29898, 58.33626]
+     },
+     "leadCoverage": [0.8436, 0.8395, 0.8358, 0.8356, 0.8354, 0.8363, 0.8371, 0.8359, 0.8373, 0.8376, 0.8365, 0.8338, 0.8336, 0.8324, 0.8297, 0.8315]
+    },
+    {
+     "id": "sfogd",
+     "n": 31584,
+     "coverage": 0.90004,
+     "gap": 0.00004,
+     "valid": true,
+     "meanWidth": 53.09142,
+     "intervalScore": 60.43002,
+     "rank": 14,
+     "tied": false,
+     "scoreRatio": 0.72508,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.89288, 0.90689],
+      "intervalScore": [59.16657, 61.63606]
+     },
+     "leadCoverage": [0.8984, 0.8978, 0.9008, 0.9002, 0.9001, 0.901, 0.8998, 0.8997, 0.8996, 0.8975, 0.8984, 0.8993, 0.9013, 0.9017, 0.9026, 0.9025]
+    },
+    {
+     "id": "saocp",
+     "n": 31584,
+     "coverage": 0.8358,
+     "gap": 0.0642,
+     "valid": false,
+     "meanWidth": 47.52384,
+     "intervalScore": 61.85448,
+     "rank": 15,
+     "tied": false,
+     "scoreRatio": 0.74217,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.82926, 0.84204],
+      "intervalScore": [60.8613, 62.85335]
+     },
+     "leadCoverage": [0.8849, 0.8697, 0.8584, 0.8265, 0.8031, 0.7822, 0.7916, 0.8192, 0.8322, 0.8803, 0.9137, 0.9009, 0.8748, 0.8059, 0.7766, 0.7519]
+    },
+    {
+     "id": "native",
+     "n": 31584,
+     "coverage": 0.62218,
+     "gap": 0.27782,
+     "valid": false,
+     "meanWidth": 33.89274,
+     "intervalScore": 83.34243,
+     "rank": 16,
+     "tied": false,
+     "scoreRatio": 1,
+     "vsNative": 0,
+     "ci": {
+      "coverage": [0.61265, 0.63049],
+      "intervalScore": [81.23138, 85.88419]
+     },
+     "leadCoverage": [0.8829, 0.8616, 0.8403, 0.8008, 0.7567, 0.6958, 0.6515, 0.602, 0.5565, 0.5302, 0.5063, 0.483, 0.4667, 0.4412, 0.4345, 0.4334]
+    }
+   ]
+  },
+  {
+   "id": "volshift",
+   "label": "Volatility shift (calm → 4× noise)",
+   "group": "Synthetic",
+   "points": 2000,
+   "pairs": 31584,
+   "seconds": 7.6,
+   "rows": [
+    {
+     "id": "nig",
+     "n": 31584,
+     "coverage": 0.8958,
+     "gap": 0.0042,
+     "valid": true,
+     "meanWidth": 49.99416,
+     "intervalScore": 59.17195,
+     "rank": 1,
+     "tied": false,
+     "scoreRatio": 0.88244,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.88439, 0.90736],
+      "intervalScore": [55.66297, 63.09451]
+     },
+     "leadCoverage": [0.8793, 0.8762, 0.8816, 0.8764, 0.8809, 0.8888, 0.8902, 0.8932, 0.8936, 0.8985, 0.8999, 0.9049, 0.9069, 0.9149, 0.9245, 0.9239]
+    },
+    {
+     "id": "bocpd",
+     "n": 31584,
+     "coverage": 0.89115,
+     "gap": 0.00885,
+     "valid": true,
+     "meanWidth": 50.31549,
+     "intervalScore": 59.17808,
+     "rank": 1,
+     "tied": true,
+     "scoreRatio": 0.88253,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.88208, 0.89975],
+      "intervalScore": [55.67043, 62.96284]
+     },
+     "leadCoverage": [0.8813, 0.8863, 0.8816, 0.8654, 0.8602, 0.8732, 0.8746, 0.8856, 0.8789, 0.8772, 0.8862, 0.8978, 0.9084, 0.9282, 0.9403, 0.9347]
+    },
+    {
+     "id": "cpcp",
+     "n": 31584,
+     "coverage": 0.89944,
+     "gap": 0.00056,
+     "valid": true,
+     "meanWidth": 51.5163,
+     "intervalScore": 59.20772,
+     "rank": 1,
+     "tied": true,
+     "scoreRatio": 0.88298,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.88971, 0.90947],
+      "intervalScore": [55.83949, 63.02664]
+     },
+     "leadCoverage": [0.8969, 0.9034, 0.9023, 0.8961, 0.8834, 0.8929, 0.8973, 0.9048, 0.8946, 0.8924, 0.901, 0.9004, 0.9033, 0.9088, 0.9077, 0.9061]
+    },
+    {
+     "id": "bocpd_aci",
+     "n": 31584,
+     "coverage": 0.89792,
+     "gap": 0.00208,
+     "valid": true,
+     "meanWidth": 50.96277,
+     "intervalScore": 59.30194,
+     "rank": 1,
+     "tied": true,
+     "scoreRatio": 0.88438,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.88953, 0.90726],
+      "intervalScore": [55.70735, 63.14464]
+     },
+     "leadCoverage": [0.8974, 0.8978, 0.8977, 0.8976, 0.896, 0.8969, 0.8973, 0.8982, 0.8966, 0.898, 0.8979, 0.8988, 0.8987, 0.8996, 0.8995, 0.8984]
+    },
+    {
+     "id": "qt",
+     "n": 31584,
+     "coverage": 0.89792,
+     "gap": 0.00208,
+     "valid": true,
+     "meanWidth": 50.85054,
+     "intervalScore": 59.47328,
+     "rank": 1,
+     "tied": true,
+     "scoreRatio": 0.88694,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.88702, 0.90906],
+      "intervalScore": [56.02535, 63.27628]
+     },
+     "leadCoverage": [0.8949, 0.8978, 0.8967, 0.8986, 0.897, 0.8989, 0.9009, 0.9008, 0.9012, 0.9006, 0.8989, 0.8968, 0.8967, 0.8971, 0.8944, 0.8954]
+    },
+    {
+     "id": "nexcp",
+     "n": 31584,
+     "coverage": 0.90691,
+     "gap": 0.00691,
+     "valid": true,
+     "meanWidth": 51.6874,
+     "intervalScore": 59.52476,
+     "rank": 6,
+     "tied": false,
+     "scoreRatio": 0.8877,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.89356, 0.91822],
+      "intervalScore": [56.00615, 63.53341]
+     },
+     "leadCoverage": [0.9015, 0.9034, 0.9088, 0.9067, 0.8995, 0.8989, 0.9054, 0.9089, 0.9017, 0.9061, 0.905, 0.9075, 0.912, 0.9149, 0.9164, 0.9142]
+    },
+    {
+     "id": "split",
+     "n": 31584,
+     "coverage": 0.90061,
+     "gap": 0.00061,
+     "valid": true,
+     "meanWidth": 51.28058,
+     "intervalScore": 59.67937,
+     "rank": 6,
+     "tied": true,
+     "scoreRatio": 0.89001,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.88909, 0.9125],
+      "intervalScore": [56.19173, 63.68497]
+     },
+     "leadCoverage": [0.8909, 0.8953, 0.9043, 0.9007, 0.897, 0.8974, 0.9024, 0.9028, 0.8996, 0.9026, 0.8984, 0.9029, 0.9038, 0.9027, 0.9046, 0.9045]
+    },
+    {
+     "id": "dtaci",
+     "n": 31584,
+     "coverage": 0.89216,
+     "gap": 0.00784,
+     "valid": true,
+     "meanWidth": 50.99042,
+     "intervalScore": 59.68796,
+     "rank": 6,
+     "tied": true,
+     "scoreRatio": 0.89014,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.88333, 0.90201],
+      "intervalScore": [56.035, 63.58816]
+     },
+     "leadCoverage": [0.8964, 0.8973, 0.8947, 0.8926, 0.892, 0.8909, 0.8887, 0.8871, 0.8925, 0.8909, 0.8903, 0.8927, 0.8891, 0.891, 0.8939, 0.8943]
+    },
+    {
+     "id": "pid",
+     "n": 31584,
+     "coverage": 0.89824,
+     "gap": 0.00176,
+     "valid": true,
+     "meanWidth": 51.12567,
+     "intervalScore": 59.81316,
+     "rank": 6,
+     "tied": true,
+     "scoreRatio": 0.892,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.88763, 0.90896],
+      "intervalScore": [56.52434, 63.47637]
+     },
+     "leadCoverage": [0.8949, 0.8978, 0.8967, 0.8986, 0.897, 0.8989, 0.9014, 0.9018, 0.9017, 0.9011, 0.8989, 0.8978, 0.8967, 0.8971, 0.895, 0.8964]
+    },
+    {
+     "id": "agaci",
+     "n": 31584,
+     "coverage": 0.90476,
+     "gap": 0.00476,
+     "valid": true,
+     "meanWidth": 52.15742,
+     "intervalScore": 59.87809,
+     "rank": 6,
+     "tied": true,
+     "scoreRatio": 0.89297,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.89503, 0.91519],
+      "intervalScore": [56.39835, 63.61145]
+     },
+     "leadCoverage": [0.9015, 0.9039, 0.9018, 0.9047, 0.9021, 0.9025, 0.9024, 0.9043, 0.9047, 0.9072, 0.9055, 0.9049, 0.9079, 0.9093, 0.9077, 0.9061]
+    },
+    {
+     "id": "aci",
+     "n": 31584,
+     "coverage": 0.89884,
+     "gap": 0.00116,
+     "valid": true,
+     "meanWidth": 51.87189,
+     "intervalScore": 59.95686,
+     "rank": 6,
+     "tied": true,
+     "scoreRatio": 0.89415,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.88893, 0.90974],
+      "intervalScore": [56.26277, 63.92419]
+     },
+     "leadCoverage": [0.8989, 0.8993, 0.8987, 0.8991, 0.8985, 0.8984, 0.8988, 0.8987, 0.8986, 0.8995, 0.8989, 0.8993, 0.8982, 0.8996, 0.898, 0.8984]
+    },
+    {
+     "id": "belief",
+     "n": 31584,
+     "coverage": 0.9306,
+     "gap": 0.0306,
+     "valid": true,
+     "meanWidth": 54.51936,
+     "intervalScore": 60.23502,
+     "rank": 12,
+     "tied": false,
+     "scoreRatio": 0.8983,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.91838, 0.94173],
+      "intervalScore": [56.84562, 63.98477]
+     },
+     "leadCoverage": [0.9266, 0.9401, 0.936, 0.936, 0.9303, 0.9333, 0.9342, 0.9322, 0.9285, 0.9264, 0.9228, 0.9253, 0.9257, 0.9312, 0.9306, 0.9301]
+    },
+    {
+     "id": "eci",
+     "n": 31584,
+     "coverage": 0.83707,
+     "gap": 0.06293,
+     "valid": false,
+     "meanWidth": 45.99504,
+     "intervalScore": 61.43928,
+     "rank": 13,
+     "tied": false,
+     "scoreRatio": 0.91625,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.82468, 0.84828],
+      "intervalScore": [57.79444, 65.47411]
+     },
+     "leadCoverage": [0.8411, 0.839, 0.8378, 0.8371, 0.8344, 0.8378, 0.8371, 0.8395, 0.8368, 0.8371, 0.837, 0.8368, 0.8356, 0.8365, 0.8343, 0.8351]
+    },
+    {
+     "id": "sfogd",
+     "n": 31584,
+     "coverage": 0.89985,
+     "gap": 0.00015,
+     "valid": true,
+     "meanWidth": 55.77956,
+     "intervalScore": 65.95009,
+     "rank": 14,
+     "tied": false,
+     "scoreRatio": 0.98353,
+     "vsNative": 0,
+     "ci": {
+      "coverage": [0.89067, 0.90758],
+      "intervalScore": [62.89822, 68.75314]
+     },
+     "leadCoverage": [0.8949, 0.8968, 0.8967, 0.8981, 0.897, 0.8989, 0.9009, 0.9023, 0.9002, 0.9031, 0.902, 0.9034, 0.9028, 0.9042, 0.9011, 0.8954]
+    },
+    {
+     "id": "native",
+     "n": 31584,
+     "coverage": 0.79851,
+     "gap": 0.10149,
+     "valid": false,
+     "meanWidth": 41.55874,
+     "intervalScore": 67.05479,
+     "rank": 14,
+     "tied": true,
+     "scoreRatio": 1,
+     "vsNative": 0,
+     "ci": {
+      "coverage": [0.78507, 0.81249],
+      "intervalScore": [62.3729, 72.26658]
+     },
+     "leadCoverage": [0.8758, 0.8848, 0.8907, 0.8936, 0.8783, 0.8828, 0.8756, 0.8557, 0.8216, 0.7864, 0.7699, 0.7326, 0.7013, 0.6694, 0.64, 0.611]
+    },
+    {
+     "id": "saocp",
+     "n": 31584,
+     "coverage": 0.8162,
+     "gap": 0.0838,
+     "valid": false,
+     "meanWidth": 49.01641,
+     "intervalScore": 71.13479,
+     "rank": 16,
+     "tied": false,
+     "scoreRatio": 1.06085,
+     "vsNative": 1,
+     "ci": {
+      "coverage": [0.80071, 0.83072],
+      "intervalScore": [68.80569, 73.56194]
+     },
+     "leadCoverage": [0.8879, 0.8767, 0.8715, 0.8497, 0.8425, 0.8267, 0.8083, 0.7939, 0.7826, 0.7849, 0.7689, 0.7789, 0.7802, 0.7759, 0.8108, 0.8178]
+    }
+   ]
+  },
+  {
+   "id": "levels",
+   "label": "Level shifts",
+   "group": "Synthetic",
+   "points": 2000,
+   "pairs": 31584,
+   "seconds": 8.3,
+   "rows": [
+    {
+     "id": "nexcp",
+     "n": 31584,
+     "coverage": 0.90223,
+     "gap": 0.00223,
+     "valid": true,
+     "meanWidth": 18.77044,
+     "intervalScore": 24.49346,
+     "rank": 1,
+     "tied": false,
+     "scoreRatio": 0.88278,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.88677, 0.91571],
+      "intervalScore": [22.13682, 28.28325]
+     },
+     "leadCoverage": [0.9115, 0.9064, 0.9028, 0.9072, 0.9061, 0.9075, 0.9044, 0.9099, 0.8986, 0.9011, 0.9005, 0.9039, 0.8906, 0.8966, 0.8939, 0.8943]
+    },
+    {
+     "id": "bocpd",
+     "n": 31584,
+     "coverage": 0.87703,
+     "gap": 0.02297,
+     "valid": false,
+     "meanWidth": 17.28853,
+     "intervalScore": 24.63104,
+     "rank": 1,
+     "tied": true,
+     "scoreRatio": 0.88774,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.86545, 0.88798],
+      "intervalScore": [22.25106, 27.87955]
+     },
+     "leadCoverage": [0.8964, 0.8868, 0.8746, 0.8805, 0.8814, 0.8747, 0.8852, 0.882, 0.8814, 0.8716, 0.868, 0.8815, 0.8677, 0.8655, 0.8725, 0.8622]
+    },
+    {
+     "id": "nig",
+     "n": 31584,
+     "coverage": 0.87883,
+     "gap": 0.02117,
+     "valid": false,
+     "meanWidth": 17.65791,
+     "intervalScore": 24.73057,
+     "rank": 1,
+     "tied": true,
+     "scoreRatio": 0.89132,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.86276, 0.89331],
+      "intervalScore": [22.37433, 28.24447]
+     },
+     "leadCoverage": [0.8904, 0.8878, 0.8781, 0.8855, 0.8829, 0.8797, 0.8801, 0.8856, 0.8738, 0.8752, 0.868, 0.8815, 0.8774, 0.8747, 0.8735, 0.8668]
+    },
+    {
+     "id": "belief",
+     "n": 31584,
+     "coverage": 0.92724,
+     "gap": 0.02724,
+     "valid": true,
+     "meanWidth": 20.40272,
+     "intervalScore": 24.81415,
+     "rank": 4,
+     "tied": false,
+     "scoreRatio": 0.89434,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.91228, 0.93993],
+      "intervalScore": [22.54011, 28.41358]
+     },
+     "leadCoverage": [0.9497, 0.9487, 0.933, 0.94, 0.9359, 0.9303, 0.9277, 0.9306, 0.9219, 0.9214, 0.9177, 0.9258, 0.912, 0.9154, 0.9159, 0.9091]
+    },
+    {
+     "id": "cpcp",
+     "n": 31584,
+     "coverage": 0.89441,
+     "gap": 0.00559,
+     "valid": true,
+     "meanWidth": 18.47317,
+     "intervalScore": 24.87748,
+     "rank": 4,
+     "tied": true,
+     "scoreRatio": 0.89662,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.88321, 0.90604],
+      "intervalScore": [22.39879, 28.13207]
+     },
+     "leadCoverage": [0.913, 0.9039, 0.8987, 0.9027, 0.9011, 0.8949, 0.8998, 0.9003, 0.8971, 0.8884, 0.8928, 0.8897, 0.8743, 0.8808, 0.8878, 0.8846]
+    },
+    {
+     "id": "qt",
+     "n": 31584,
+     "coverage": 0.90213,
+     "gap": 0.00213,
+     "valid": true,
+     "meanWidth": 19.4253,
+     "intervalScore": 24.98849,
+     "rank": 4,
+     "tied": true,
+     "scoreRatio": 0.90062,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.88722, 0.91548],
+      "intervalScore": [22.52251, 28.67335]
+     },
+     "leadCoverage": [0.9075, 0.9054, 0.9003, 0.9042, 0.9006, 0.9005, 0.8963, 0.9063, 0.8981, 0.9001, 0.901, 0.9034, 0.8992, 0.9017, 0.9021, 0.9076]
+    },
+    {
+     "id": "split",
+     "n": 31584,
+     "coverage": 0.8933,
+     "gap": 0.0067,
+     "valid": true,
+     "meanWidth": 18.7384,
+     "intervalScore": 25.02762,
+     "rank": 4,
+     "tied": true,
+     "scoreRatio": 0.90203,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.87679, 0.90888],
+      "intervalScore": [22.49973, 28.81406]
+     },
+     "leadCoverage": [0.9035, 0.8993, 0.8962, 0.8991, 0.9006, 0.8979, 0.8933, 0.8977, 0.8915, 0.8919, 0.8923, 0.8917, 0.8809, 0.89, 0.8837, 0.8826]
+    },
+    {
+     "id": "agaci",
+     "n": 31584,
+     "coverage": 0.90331,
+     "gap": 0.00331,
+     "valid": true,
+     "meanWidth": 19.82636,
+     "intervalScore": 25.47623,
+     "rank": 8,
+     "tied": false,
+     "scoreRatio": 0.9182,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.88838, 0.91725],
+      "intervalScore": [22.90805, 29.05852]
+     },
+     "leadCoverage": [0.9065, 0.9024, 0.9008, 0.9037, 0.9041, 0.8994, 0.9024, 0.9068, 0.9022, 0.9041, 0.9015, 0.9034, 0.9048, 0.9047, 0.9036, 0.9025]
+    },
+    {
+     "id": "bocpd_aci",
+     "n": 31584,
+     "coverage": 0.89754,
+     "gap": 0.00246,
+     "valid": true,
+     "meanWidth": 19.23901,
+     "intervalScore": 25.54226,
+     "rank": 8,
+     "tied": true,
+     "scoreRatio": 0.92058,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.88628, 0.90839],
+      "intervalScore": [23.01934, 28.63345]
+     },
+     "leadCoverage": [0.8969, 0.8973, 0.8982, 0.8976, 0.8975, 0.8984, 0.8968, 0.8997, 0.8966, 0.8985, 0.8959, 0.8978, 0.8972, 0.8966, 0.899, 0.8964]
+    },
+    {
+     "id": "eci",
+     "n": 31584,
+     "coverage": 0.84112,
+     "gap": 0.05888,
+     "valid": false,
+     "meanWidth": 16.44423,
+     "intervalScore": 25.54889,
+     "rank": 8,
+     "tied": true,
+     "scoreRatio": 0.92082,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.82579, 0.85361],
+      "intervalScore": [23.10954, 29.13398]
+     },
+     "leadCoverage": [0.8517, 0.849, 0.8423, 0.8447, 0.844, 0.8428, 0.8417, 0.8425, 0.8388, 0.8387, 0.8365, 0.8409, 0.8351, 0.836, 0.8368, 0.8361]
+    },
+    {
+     "id": "saocp",
+     "n": 31584,
+     "coverage": 0.88624,
+     "gap": 0.01376,
+     "valid": true,
+     "meanWidth": 18.47885,
+     "intervalScore": 25.61827,
+     "rank": 8,
+     "tied": true,
+     "scoreRatio": 0.92332,
+     "vsNative": 0,
+     "ci": {
+      "coverage": [0.87552, 0.89519],
+      "intervalScore": [23.13294, 28.60237]
+     },
+     "leadCoverage": [0.8894, 0.8903, 0.8902, 0.8896, 0.8884, 0.8858, 0.8907, 0.9013, 0.8855, 0.8864, 0.8776, 0.8871, 0.8794, 0.8823, 0.8766, 0.879]
+    },
+    {
+     "id": "pid",
+     "n": 31584,
+     "coverage": 0.90353,
+     "gap": 0.00353,
+     "valid": true,
+     "meanWidth": 20.14697,
+     "intervalScore": 25.82416,
+     "rank": 8,
+     "tied": true,
+     "scoreRatio": 0.93074,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.88892, 0.91672],
+      "intervalScore": [23.26912, 29.49204]
+     },
+     "leadCoverage": [0.908, 0.9079, 0.9023, 0.9092, 0.9041, 0.901, 0.8978, 0.9063, 0.8976, 0.898, 0.8989, 0.9075, 0.8972, 0.9052, 0.9031, 0.9122]
+    },
+    {
+     "id": "aci",
+     "n": 31584,
+     "coverage": 0.89897,
+     "gap": 0.00103,
+     "valid": true,
+     "meanWidth": 20.30645,
+     "intervalScore": 26.13586,
+     "rank": 13,
+     "tied": false,
+     "scoreRatio": 0.94197,
+     "vsNative": 0,
+     "ci": {
+      "coverage": [0.88274, 0.91241],
+      "intervalScore": [23.41615, 29.63154]
+     },
+     "leadCoverage": [0.8989, 0.8983, 0.8992, 0.8996, 0.8985, 0.8984, 0.8978, 0.9003, 0.8986, 0.899, 0.8994, 0.8988, 0.8987, 0.8986, 0.9001, 0.8989]
+    },
+    {
+     "id": "dtaci",
+     "n": 31584,
+     "coverage": 0.89045,
+     "gap": 0.00955,
+     "valid": true,
+     "meanWidth": 19.23739,
+     "intervalScore": 26.50214,
+     "rank": 13,
+     "tied": true,
+     "scoreRatio": 0.95517,
+     "vsNative": 0,
+     "ci": {
+      "coverage": [0.87618, 0.90295],
+      "intervalScore": [23.50054, 29.90217]
+     },
+     "leadCoverage": [0.8999, 0.8963, 0.8927, 0.8931, 0.8945, 0.8873, 0.8882, 0.8947, 0.8931, 0.8884, 0.8898, 0.8892, 0.884, 0.8854, 0.8832, 0.8872]
+    },
+    {
+     "id": "native",
+     "n": 31584,
+     "coverage": 0.75579,
+     "gap": 0.14421,
+     "valid": false,
+     "meanWidth": 12.65004,
+     "intervalScore": 27.74587,
+     "rank": 13,
+     "tied": true,
+     "scoreRatio": 1,
+     "vsNative": 0,
+     "ci": {
+      "coverage": [0.73876, 0.77409],
+      "intervalScore": [24.62924, 32.02356]
+     },
+     "leadCoverage": [0.8743, 0.8556, 0.8262, 0.7993, 0.788, 0.7691, 0.7719, 0.7453, 0.7248, 0.7017, 0.7288, 0.7021, 0.7038, 0.703, 0.7007, 0.6942]
+    },
+    {
+     "id": "sfogd",
+     "n": 31584,
+     "coverage": 0.89738,
+     "gap": 0.00262,
+     "valid": true,
+     "meanWidth": 22.20805,
+     "intervalScore": 31.50484,
+     "rank": 16,
+     "tied": false,
+     "scoreRatio": 1.13548,
+     "vsNative": 0,
+     "ci": {
+      "coverage": [0.88273, 0.90877],
+      "intervalScore": [26.60601, 38.06704]
+     },
+     "leadCoverage": [0.8979, 0.9004, 0.8992, 0.9007, 0.8975, 0.8964, 0.8958, 0.8992, 0.8941, 0.8935, 0.8939, 0.8978, 0.8941, 0.8981, 0.897, 0.9025]
+    }
+   ]
+  },
+  {
+   "id": "walk",
+   "label": "Random walk",
+   "group": "Synthetic",
+   "points": 2000,
+   "pairs": 31584,
+   "seconds": 8.1,
+   "rows": [
+    {
+     "id": "nexcp",
+     "n": 31584,
+     "coverage": 0.90033,
+     "gap": 0.00033,
+     "valid": true,
+     "meanWidth": 17.02622,
+     "intervalScore": 20.92651,
+     "rank": 1,
+     "tied": false,
+     "scoreRatio": 0.9583,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.88137, 0.91527],
+      "intervalScore": [19.93177, 22.04933]
+     },
+     "leadCoverage": [0.9075, 0.9039, 0.9038, 0.9017, 0.899, 0.9035, 0.9009, 0.9033, 0.9002, 0.9026, 0.902, 0.8968, 0.8997, 0.8945, 0.8934, 0.8923]
+    },
+    {
+     "id": "belief",
+     "n": 31584,
+     "coverage": 0.92658,
+     "gap": 0.02658,
+     "valid": true,
+     "meanWidth": 18.32591,
+     "intervalScore": 21.07073,
+     "rank": 1,
+     "tied": true,
+     "scoreRatio": 0.9649,
+     "vsNative": 0,
+     "ci": {
+      "coverage": [0.91068, 0.93929],
+      "intervalScore": [20.21608, 22.05233]
+     },
+     "leadCoverage": [0.9321, 0.9321, 0.935, 0.9244, 0.9263, 0.9247, 0.9262, 0.9256, 0.9341, 0.9244, 0.9304, 0.9298, 0.9267, 0.921, 0.9179, 0.9142]
+    },
+    {
+     "id": "qt",
+     "n": 31584,
+     "coverage": 0.89792,
+     "gap": 0.00208,
+     "valid": true,
+     "meanWidth": 17.09695,
+     "intervalScore": 21.20078,
+     "rank": 3,
+     "tied": false,
+     "scoreRatio": 0.97086,
+     "vsNative": 0,
+     "ci": {
+      "coverage": [0.87976, 0.91373],
+      "intervalScore": [20.21597, 22.33223]
+     },
+     "leadCoverage": [0.8994, 0.8988, 0.9013, 0.8956, 0.8955, 0.8959, 0.8953, 0.8967, 0.8996, 0.8995, 0.9025, 0.8983, 0.8982, 0.8966, 0.8985, 0.8948]
+    },
+    {
+     "id": "nig",
+     "n": 31584,
+     "coverage": 0.86832,
+     "gap": 0.03168,
+     "valid": false,
+     "meanWidth": 15.55141,
+     "intervalScore": 21.29967,
+     "rank": 3,
+     "tied": true,
+     "scoreRatio": 0.97539,
+     "vsNative": 0,
+     "ci": {
+      "coverage": [0.84736, 0.88555],
+      "intervalScore": [20.09845, 22.70207]
+     },
+     "leadCoverage": [0.8829, 0.8802, 0.8877, 0.8744, 0.8763, 0.8686, 0.8705, 0.8694, 0.8692, 0.8661, 0.8669, 0.8612, 0.859, 0.8538, 0.8536, 0.8525]
+    },
+    {
+     "id": "pid",
+     "n": 31584,
+     "coverage": 0.89827,
+     "gap": 0.00173,
+     "valid": true,
+     "meanWidth": 17.2111,
+     "intervalScore": 21.36223,
+     "rank": 5,
+     "tied": false,
+     "scoreRatio": 0.97825,
+     "vsNative": 0,
+     "ci": {
+      "coverage": [0.87948, 0.91468],
+      "intervalScore": [20.39273, 22.49788]
+     },
+     "leadCoverage": [0.8994, 0.8988, 0.9013, 0.8966, 0.8965, 0.8964, 0.8963, 0.8972, 0.8996, 0.9001, 0.9025, 0.8978, 0.8987, 0.8966, 0.899, 0.8954]
+    },
+    {
+     "id": "split",
+     "n": 31584,
+     "coverage": 0.8896,
+     "gap": 0.0104,
+     "valid": true,
+     "meanWidth": 16.7253,
+     "intervalScore": 21.39675,
+     "rank": 5,
+     "tied": true,
+     "scoreRatio": 0.97983,
+     "vsNative": 0,
+     "ci": {
+      "coverage": [0.86947, 0.90618],
+      "intervalScore": [20.27891, 22.63494]
+     },
+     "leadCoverage": [0.9035, 0.8948, 0.8952, 0.8941, 0.8879, 0.8929, 0.8902, 0.8922, 0.89, 0.8874, 0.8949, 0.8866, 0.8845, 0.8803, 0.8761, 0.8826]
+    },
+    {
+     "id": "agaci",
+     "n": 31584,
+     "coverage": 0.90207,
+     "gap": 0.00207,
+     "valid": true,
+     "meanWidth": 17.66925,
+     "intervalScore": 21.67284,
+     "rank": 7,
+     "tied": false,
+     "scoreRatio": 0.99247,
+     "vsNative": 0,
+     "ci": {
+      "coverage": [0.88297, 0.91822],
+      "intervalScore": [20.61552, 22.86874]
+     },
+     "leadCoverage": [0.902, 0.9014, 0.8992, 0.8991, 0.9011, 0.9015, 0.9009, 0.9058, 0.9007, 0.9026, 0.9005, 0.9019, 0.9053, 0.9032, 0.9041, 0.904]
+    },
+    {
+     "id": "native",
+     "n": 31584,
+     "coverage": 0.82529,
+     "gap": 0.07471,
+     "valid": false,
+     "meanWidth": 13.38081,
+     "intervalScore": 21.83719,
+     "rank": 7,
+     "tied": true,
+     "scoreRatio": 1,
+     "vsNative": 0,
+     "ci": {
+      "coverage": [0.80006, 0.84551],
+      "intervalScore": [20.22689, 23.78964]
+     },
+     "leadCoverage": [0.8849, 0.8621, 0.8605, 0.8548, 0.8319, 0.8297, 0.828, 0.8182, 0.8115, 0.8179, 0.8014, 0.8033, 0.7975, 0.8029, 0.8001, 0.7984]
+    },
+    {
+     "id": "aci",
+     "n": 31584,
+     "coverage": 0.89884,
+     "gap": 0.00116,
+     "valid": true,
+     "meanWidth": 18.05138,
+     "intervalScore": 22.36831,
+     "rank": 9,
+     "tied": false,
+     "scoreRatio": 1.02432,
+     "vsNative": 0,
+     "ci": {
+      "coverage": [0.87875, 0.91649],
+      "intervalScore": [21.19722, 23.85006]
+     },
+     "leadCoverage": [0.8994, 0.8993, 0.8982, 0.8976, 0.897, 0.8979, 0.8978, 0.8977, 0.8971, 0.9001, 0.9005, 0.8998, 0.8997, 0.8996, 0.9001, 0.8994]
+    },
+    {
+     "id": "dtaci",
+     "n": 31584,
+     "coverage": 0.87538,
+     "gap": 0.02462,
+     "valid": false,
+     "meanWidth": 16.80957,
+     "intervalScore": 22.41469,
+     "rank": 9,
+     "tied": true,
+     "scoreRatio": 1.02645,
+     "vsNative": 0,
+     "ci": {
+      "coverage": [0.8556, 0.89426],
+      "intervalScore": [21.32611, 23.75857]
+     },
+     "leadCoverage": [0.8999, 0.8928, 0.8917, 0.885, 0.8814, 0.8802, 0.8766, 0.8765, 0.8728, 0.8772, 0.8781, 0.8653, 0.8646, 0.8528, 0.8531, 0.8571]
+    },
+    {
+     "id": "bocpd",
+     "n": 31584,
+     "coverage": 0.84318,
+     "gap": 0.05682,
+     "valid": false,
+     "meanWidth": 15.17189,
+     "intervalScore": 22.56263,
+     "rank": 9,
+     "tied": true,
+     "scoreRatio": 1.03322,
+     "vsNative": 0,
+     "ci": {
+      "coverage": [0.82119, 0.8615],
+      "intervalScore": [21.24904, 24.07362]
+     },
+     "leadCoverage": [0.8874, 0.8827, 0.8841, 0.8694, 0.8541, 0.8494, 0.8422, 0.8344, 0.8327, 0.8239, 0.8233, 0.8246, 0.827, 0.8242, 0.8154, 0.8142]
+    },
+    {
+     "id": "cpcp",
+     "n": 31584,
+     "coverage": 0.87525,
+     "gap": 0.02475,
+     "valid": false,
+     "meanWidth": 16.79344,
+     "intervalScore": 22.57111,
+     "rank": 9,
+     "tied": true,
+     "scoreRatio": 1.03361,
+     "vsNative": 0,
+     "ci": {
+      "coverage": [0.85669, 0.89156],
+      "intervalScore": [21.48674, 23.78406]
+     },
+     "leadCoverage": [0.901, 0.9014, 0.9068, 0.888, 0.8844, 0.8883, 0.8761, 0.8785, 0.8702, 0.8666, 0.8654, 0.8627, 0.8499, 0.8609, 0.8542, 0.8484]
+    },
+    {
+     "id": "eci",
+     "n": 31584,
+     "coverage": 0.8334,
+     "gap": 0.0666,
+     "valid": false,
+     "meanWidth": 15.15258,
+     "intervalScore": 22.89538,
+     "rank": 9,
+     "tied": true,
+     "scoreRatio": 1.04846,
+     "vsNative": 1,
+     "ci": {
+      "coverage": [0.80964, 0.8556],
+      "intervalScore": [21.66923, 24.53665]
+     },
+     "leadCoverage": [0.8421, 0.8435, 0.8413, 0.8381, 0.8344, 0.8327, 0.8346, 0.8349, 0.8312, 0.8316, 0.8329, 0.8297, 0.8295, 0.8278, 0.8276, 0.8218]
+    },
+    {
+     "id": "bocpd_aci",
+     "n": 31584,
+     "coverage": 0.89694,
+     "gap": 0.00306,
+     "valid": true,
+     "meanWidth": 19.53337,
+     "intervalScore": 23.70289,
+     "rank": 14,
+     "tied": false,
+     "scoreRatio": 1.08544,
+     "vsNative": 1,
+     "ci": {
+      "coverage": [0.88084, 0.91085],
+      "intervalScore": [22.68146, 24.78929]
+     },
+     "leadCoverage": [0.8974, 0.8988, 0.8987, 0.8961, 0.896, 0.8979, 0.8978, 0.8967, 0.8956, 0.897, 0.8964, 0.8968, 0.8967, 0.8956, 0.897, 0.8964]
+    },
+    {
+     "id": "saocp",
+     "n": 31584,
+     "coverage": 0.81557,
+     "gap": 0.08443,
+     "valid": false,
+     "meanWidth": 14.74613,
+     "intervalScore": 23.88679,
+     "rank": 14,
+     "tied": true,
+     "scoreRatio": 1.09386,
+     "vsNative": 1,
+     "ci": {
+      "coverage": [0.79509, 0.83041],
+      "intervalScore": [22.6135, 25.52988]
+     },
+     "leadCoverage": [0.8909, 0.8777, 0.8594, 0.826, 0.8375, 0.8216, 0.8189, 0.8167, 0.8089, 0.7864, 0.7923, 0.7855, 0.7883, 0.7855, 0.7792, 0.7718]
+    },
+    {
+     "id": "sfogd",
+     "n": 31584,
+     "coverage": 0.89691,
+     "gap": 0.00309,
+     "valid": true,
+     "meanWidth": 19.40046,
+     "intervalScore": 24.19352,
+     "rank": 14,
+     "tied": true,
+     "scoreRatio": 1.1079,
+     "vsNative": 1,
+     "ci": {
+      "coverage": [0.87974, 0.91316],
+      "intervalScore": [23.05618, 25.35473]
+     },
+     "leadCoverage": [0.8984, 0.8978, 0.8972, 0.8946, 0.8955, 0.8959, 0.8958, 0.8972, 0.8961, 0.8975, 0.8989, 0.9004, 0.9018, 0.8945, 0.8955, 0.8933]
+    }
+   ]
+  },
+  {
+   "id": "heavy",
+   "label": "Heavy-tailed noise (Student t₂)",
+   "group": "Synthetic",
+   "points": 2000,
+   "pairs": 31584,
+   "seconds": 7.7,
+   "rows": [
+    {
+     "id": "nexcp",
+     "n": 31584,
+     "coverage": 0.90419,
+     "gap": 0.00419,
+     "valid": true,
+     "meanWidth": 61.72229,
+     "intervalScore": 83.93349,
+     "rank": 1,
+     "tied": false,
+     "scoreRatio": 0.82274,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.89194, 0.91573],
+      "intervalScore": [79.02056, 89.48793]
+     },
+     "leadCoverage": [0.907, 0.9029, 0.9088, 0.9057, 0.9056, 0.9045, 0.8998, 0.9028, 0.9032, 0.9077, 0.9071, 0.9029, 0.9059, 0.9007, 0.9001, 0.9025]
+    },
+    {
+     "id": "bocpd",
+     "n": 31584,
+     "coverage": 0.90517,
+     "gap": 0.00517,
+     "valid": true,
+     "meanWidth": 65.37939,
+     "intervalScore": 83.99776,
+     "rank": 1,
+     "tied": true,
+     "scoreRatio": 0.82337,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.89537, 0.91368],
+      "intervalScore": [79.72791, 88.89392]
+     },
+     "leadCoverage": [0.8854, 0.8923, 0.8977, 0.9002, 0.89, 0.8989, 0.9014, 0.9119, 0.9088, 0.9137, 0.9081, 0.9156, 0.915, 0.9195, 0.9143, 0.9107]
+    },
+    {
+     "id": "split",
+     "n": 31584,
+     "coverage": 0.89786,
+     "gap": 0.00214,
+     "valid": true,
+     "meanWidth": 61.21406,
+     "intervalScore": 84.38833,
+     "rank": 3,
+     "tied": false,
+     "scoreRatio": 0.8272,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.88519, 0.90948],
+      "intervalScore": [79.54236, 89.95006]
+     },
+     "leadCoverage": [0.903, 0.8963, 0.8992, 0.9012, 0.8975, 0.8989, 0.8948, 0.9008, 0.8976, 0.9031, 0.8989, 0.8993, 0.9013, 0.892, 0.8904, 0.8913]
+    },
+    {
+     "id": "nig",
+     "n": 31584,
+     "coverage": 0.91217,
+     "gap": 0.01217,
+     "valid": true,
+     "meanWidth": 63.77639,
+     "intervalScore": 84.41262,
+     "rank": 3,
+     "tied": true,
+     "scoreRatio": 0.82743,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.90031, 0.92251],
+      "intervalScore": [79.82246, 89.71023]
+     },
+     "leadCoverage": [0.9186, 0.917, 0.9144, 0.9148, 0.9081, 0.9116, 0.9079, 0.9104, 0.9067, 0.9137, 0.9147, 0.9105, 0.912, 0.9154, 0.9097, 0.9091]
+    },
+    {
+     "id": "bocpd_aci",
+     "n": 31584,
+     "coverage": 0.8997,
+     "gap": 0.0003,
+     "valid": true,
+     "meanWidth": 65.44087,
+     "intervalScore": 84.79599,
+     "rank": 3,
+     "tied": true,
+     "scoreRatio": 0.83119,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.88945, 0.90806],
+      "intervalScore": [80.39162, 89.90769]
+     },
+     "leadCoverage": [0.8989, 0.8993, 0.8977, 0.8991, 0.899, 0.9005, 0.8998, 0.8997, 0.9007, 0.9011, 0.8994, 0.8998, 0.9013, 0.9007, 0.8995, 0.8984]
+    },
+    {
+     "id": "qt",
+     "n": 31584,
+     "coverage": 0.89577,
+     "gap": 0.00423,
+     "valid": true,
+     "meanWidth": 61.48293,
+     "intervalScore": 85.03943,
+     "rank": 6,
+     "tied": false,
+     "scoreRatio": 0.83358,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.88411, 0.9067],
+      "intervalScore": [80.28808, 90.48975]
+     },
+     "leadCoverage": [0.8969, 0.8973, 0.8942, 0.8966, 0.896, 0.8969, 0.8963, 0.8947, 0.8966, 0.896, 0.8939, 0.8953, 0.8977, 0.8956, 0.8944, 0.8938]
+    },
+    {
+     "id": "dtaci",
+     "n": 31584,
+     "coverage": 0.89441,
+     "gap": 0.00559,
+     "valid": true,
+     "meanWidth": 61.97693,
+     "intervalScore": 85.14175,
+     "rank": 6,
+     "tied": true,
+     "scoreRatio": 0.83458,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.88234, 0.90491],
+      "intervalScore": [80.21465, 90.70258]
+     },
+     "leadCoverage": [0.8899, 0.8898, 0.8942, 0.8921, 0.894, 0.8924, 0.8897, 0.8987, 0.8956, 0.897, 0.8954, 0.8978, 0.9003, 0.8961, 0.8965, 0.8913]
+    },
+    {
+     "id": "agaci",
+     "n": 31584,
+     "coverage": 0.90476,
+     "gap": 0.00476,
+     "valid": true,
+     "meanWidth": 63.85377,
+     "intervalScore": 85.24506,
+     "rank": 6,
+     "tied": true,
+     "scoreRatio": 0.83559,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.89307, 0.91579],
+      "intervalScore": [80.37753, 90.64119]
+     },
+     "leadCoverage": [0.908, 0.9044, 0.9073, 0.9047, 0.9041, 0.904, 0.9029, 0.9078, 0.9012, 0.9072, 0.903, 0.908, 0.9043, 0.9037, 0.9067, 0.8989]
+    },
+    {
+     "id": "pid",
+     "n": 31584,
+     "coverage": 0.89526,
+     "gap": 0.00474,
+     "valid": true,
+     "meanWidth": 62.37466,
+     "intervalScore": 85.69445,
+     "rank": 9,
+     "tied": false,
+     "scoreRatio": 0.84,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.88339, 0.90536],
+      "intervalScore": [80.93072, 91.0515]
+     },
+     "leadCoverage": [0.8964, 0.8978, 0.8947, 0.8976, 0.895, 0.8959, 0.8963, 0.8942, 0.8951, 0.895, 0.8933, 0.8948, 0.8967, 0.8945, 0.8939, 0.8928]
+    },
+    {
+     "id": "saocp",
+     "n": 31584,
+     "coverage": 0.89314,
+     "gap": 0.00686,
+     "valid": true,
+     "meanWidth": 66.50262,
+     "intervalScore": 85.71375,
+     "rank": 9,
+     "tied": true,
+     "scoreRatio": 0.84019,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.88247, 0.90131],
+      "intervalScore": [81.42622, 90.33288]
+     },
+     "leadCoverage": [0.8859, 0.9069, 0.8992, 0.8986, 0.8889, 0.8858, 0.8771, 0.878, 0.8799, 0.8767, 0.8939, 0.8932, 0.9109, 0.9083, 0.9123, 0.8948]
+    },
+    {
+     "id": "aci",
+     "n": 31584,
+     "coverage": 0.89954,
+     "gap": 0.00046,
+     "valid": true,
+     "meanWidth": 63.81406,
+     "intervalScore": 86.08682,
+     "rank": 9,
+     "tied": true,
+     "scoreRatio": 0.84385,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.88721, 0.91075],
+      "intervalScore": [81.35694, 91.50272]
+     },
+     "leadCoverage": [0.9005, 0.9004, 0.8997, 0.8996, 0.8995, 0.8994, 0.8988, 0.8997, 0.8996, 0.9006, 0.8989, 0.8993, 0.9003, 0.8996, 0.899, 0.8974]
+    },
+    {
+     "id": "eci",
+     "n": 31584,
+     "coverage": 0.85347,
+     "gap": 0.04653,
+     "valid": false,
+     "meanWidth": 57.29971,
+     "intervalScore": 87.5354,
+     "rank": 12,
+     "tied": false,
+     "scoreRatio": 0.85804,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.84022, 0.86484],
+      "intervalScore": [82.8565, 93.15582]
+     },
+     "leadCoverage": [0.8612, 0.8641, 0.8605, 0.8593, 0.8551, 0.8555, 0.8538, 0.8537, 0.8505, 0.8524, 0.8512, 0.8521, 0.8504, 0.8467, 0.845, 0.8438]
+    },
+    {
+     "id": "cpcp",
+     "n": 31584,
+     "coverage": 0.90853,
+     "gap": 0.00853,
+     "valid": true,
+     "meanWidth": 69.04244,
+     "intervalScore": 87.90755,
+     "rank": 12,
+     "tied": true,
+     "scoreRatio": 0.86169,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.89909, 0.91669],
+      "intervalScore": [83.0268, 93.53726]
+     },
+     "leadCoverage": [0.9085, 0.9104, 0.9118, 0.9092, 0.9021, 0.9085, 0.909, 0.9109, 0.9113, 0.9158, 0.906, 0.907, 0.9104, 0.9047, 0.9031, 0.9076]
+    },
+    {
+     "id": "belief",
+     "n": 31584,
+     "coverage": 0.94386,
+     "gap": 0.04386,
+     "valid": true,
+     "meanWidth": 74.24671,
+     "intervalScore": 88.8449,
+     "rank": 12,
+     "tied": true,
+     "scoreRatio": 0.87088,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.93377, 0.95238],
+      "intervalScore": [84.50764, 93.39522]
+     },
+     "leadCoverage": [0.9527, 0.9612, 0.9516, 0.9481, 0.9485, 0.9449, 0.9464, 0.9473, 0.9387, 0.9477, 0.9385, 0.9339, 0.9379, 0.9338, 0.9368, 0.9331]
+    },
+    {
+     "id": "sfogd",
+     "n": 31584,
+     "coverage": 0.89897,
+     "gap": 0.00103,
+     "valid": true,
+     "meanWidth": 75.21143,
+     "intervalScore": 98.9284,
+     "rank": 15,
+     "tied": false,
+     "scoreRatio": 0.96972,
+     "vsNative": 0,
+     "ci": {
+      "coverage": [0.88701, 0.91032],
+      "intervalScore": [92.40172, 106.9584]
+     },
+     "leadCoverage": [0.8974, 0.8983, 0.8987, 0.8961, 0.8985, 0.8969, 0.8978, 0.8972, 0.8971, 0.898, 0.8969, 0.8968, 0.8982, 0.9022, 0.9077, 0.9056]
+    },
+    {
+     "id": "native",
+     "n": 31584,
+     "coverage": 0.72591,
+     "gap": 0.17409,
+     "valid": false,
+     "meanWidth": 42.68099,
+     "intervalScore": 102.01733,
+     "rank": 15,
+     "tied": true,
+     "scoreRatio": 1,
+     "vsNative": 0,
+     "ci": {
+      "coverage": [0.71157, 0.7402],
+      "intervalScore": [95.55199, 108.89932]
+     },
+     "leadCoverage": [0.8829, 0.8712, 0.8539, 0.8588, 0.8299, 0.8151, 0.7901, 0.762, 0.7238, 0.6875, 0.6526, 0.637, 0.6092, 0.5507, 0.5518, 0.5294]
+    }
+   ]
+  },
+  {
+   "id": "regime",
+   "label": "Regime change (period 60 → 20)",
+   "group": "Synthetic",
+   "points": 2000,
+   "pairs": 31584,
+   "seconds": 7.5,
+   "rows": [
+    {
+     "id": "dtaci",
+     "n": 31584,
+     "coverage": 0.88899,
+     "gap": 0.01101,
+     "valid": true,
+     "meanWidth": 81.05786,
+     "intervalScore": 89.58269,
+     "rank": 1,
+     "tied": false,
+     "scoreRatio": 0.54617,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.87518, 0.90159],
+      "intervalScore": [79.64377, 99.13153]
+     },
+     "leadCoverage": [0.8964, 0.8968, 0.8922, 0.8931, 0.8965, 0.8914, 0.8983, 0.8916, 0.888, 0.8858, 0.8771, 0.88, 0.8794, 0.8869, 0.8832, 0.8867]
+    },
+    {
+     "id": "cpcp",
+     "n": 31584,
+     "coverage": 0.90571,
+     "gap": 0.00571,
+     "valid": true,
+     "meanWidth": 82.77735,
+     "intervalScore": 89.68481,
+     "rank": 1,
+     "tied": true,
+     "scoreRatio": 0.54679,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.8925, 0.91735],
+      "intervalScore": [80.00796, 98.90999]
+     },
+     "leadCoverage": [0.9125, 0.9175, 0.9244, 0.9148, 0.9066, 0.9111, 0.9039, 0.9134, 0.9022, 0.9097, 0.8928, 0.9019, 0.8992, 0.8971, 0.8924, 0.8913]
+    },
+    {
+     "id": "aci",
+     "n": 31584,
+     "coverage": 0.89913,
+     "gap": 0.00087,
+     "valid": true,
+     "meanWidth": 81.85134,
+     "intervalScore": 89.8745,
+     "rank": 1,
+     "tied": true,
+     "scoreRatio": 0.54795,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.88365, 0.91108],
+      "intervalScore": [79.83231, 99.84486]
+     },
+     "leadCoverage": [0.8989, 0.8983, 0.8977, 0.8991, 0.899, 0.8994, 0.8988, 0.8992, 0.8991, 0.8995, 0.8999, 0.8993, 0.8987, 0.9007, 0.8985, 0.8994]
+    },
+    {
+     "id": "agaci",
+     "n": 31584,
+     "coverage": 0.9035,
+     "gap": 0.0035,
+     "valid": true,
+     "meanWidth": 82.05522,
+     "intervalScore": 90.45765,
+     "rank": 1,
+     "tied": true,
+     "scoreRatio": 0.55151,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.88729, 0.91642],
+      "intervalScore": [80.05785, 100.6178]
+     },
+     "leadCoverage": [0.9055, 0.9029, 0.9008, 0.9027, 0.9041, 0.9015, 0.9044, 0.9023, 0.9072, 0.9061, 0.9025, 0.9029, 0.9023, 0.9068, 0.9006, 0.9035]
+    },
+    {
+     "id": "nexcp",
+     "n": 31584,
+     "coverage": 0.90739,
+     "gap": 0.00739,
+     "valid": true,
+     "meanWidth": 81.09792,
+     "intervalScore": 90.90713,
+     "rank": 1,
+     "tied": true,
+     "scoreRatio": 0.55425,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.88828, 0.92353],
+      "intervalScore": [79.43904, 101.85096]
+     },
+     "leadCoverage": [0.9075, 0.9074, 0.9139, 0.9092, 0.9127, 0.9106, 0.9079, 0.9149, 0.9083, 0.9117, 0.9111, 0.9059, 0.9048, 0.9037, 0.8944, 0.8938]
+    },
+    {
+     "id": "qt",
+     "n": 31584,
+     "coverage": 0.89577,
+     "gap": 0.00423,
+     "valid": true,
+     "meanWidth": 80.62164,
+     "intervalScore": 90.94819,
+     "rank": 1,
+     "tied": true,
+     "scoreRatio": 0.5545,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.87765, 0.9107],
+      "intervalScore": [79.79182, 101.71001]
+     },
+     "leadCoverage": [0.902, 0.8963, 0.8967, 0.8986, 0.896, 0.8974, 0.8958, 0.8957, 0.8976, 0.896, 0.8949, 0.8937, 0.8952, 0.8925, 0.8919, 0.8918]
+    },
+    {
+     "id": "nig",
+     "n": 31584,
+     "coverage": 0.91106,
+     "gap": 0.01106,
+     "valid": true,
+     "meanWidth": 82.42704,
+     "intervalScore": 91.07097,
+     "rank": 1,
+     "tied": true,
+     "scoreRatio": 0.55525,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.89378, 0.92884],
+      "intervalScore": [79.82025, 101.96803]
+     },
+     "leadCoverage": [0.8854, 0.8913, 0.8937, 0.8996, 0.9031, 0.9101, 0.9115, 0.921, 0.9214, 0.9209, 0.9213, 0.9258, 0.9216, 0.9231, 0.9159, 0.9122]
+    },
+    {
+     "id": "split",
+     "n": 31584,
+     "coverage": 0.89675,
+     "gap": 0.00325,
+     "valid": true,
+     "meanWidth": 80.68014,
+     "intervalScore": 91.09177,
+     "rank": 1,
+     "tied": true,
+     "scoreRatio": 0.55537,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.87807, 0.91287],
+      "intervalScore": [79.65958, 101.97768]
+     },
+     "leadCoverage": [0.902, 0.9014, 0.9003, 0.9077, 0.9036, 0.8974, 0.8983, 0.8987, 0.8941, 0.9016, 0.8994, 0.8907, 0.8936, 0.8915, 0.8837, 0.8836]
+    },
+    {
+     "id": "pid",
+     "n": 31584,
+     "coverage": 0.89609,
+     "gap": 0.00391,
+     "valid": true,
+     "meanWidth": 81.32919,
+     "intervalScore": 91.42261,
+     "rank": 1,
+     "tied": true,
+     "scoreRatio": 0.55739,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.87824, 0.91065],
+      "intervalScore": [80.47163, 102.00068]
+     },
+     "leadCoverage": [0.9015, 0.8968, 0.8967, 0.8976, 0.896, 0.8974, 0.8958, 0.8967, 0.8971, 0.896, 0.8944, 0.8953, 0.8952, 0.8935, 0.8934, 0.8938]
+    },
+    {
+     "id": "belief",
+     "n": 31584,
+     "coverage": 0.92645,
+     "gap": 0.02645,
+     "valid": true,
+     "meanWidth": 83.52435,
+     "intervalScore": 91.66567,
+     "rank": 1,
+     "tied": true,
+     "scoreRatio": 0.55887,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.90836, 0.94231],
+      "intervalScore": [80.64487, 102.06403]
+     },
+     "leadCoverage": [0.9341, 0.9341, 0.9264, 0.9339, 0.9369, 0.9368, 0.9368, 0.9377, 0.9316, 0.931, 0.9274, 0.9248, 0.9176, 0.9129, 0.9011, 0.8994]
+    },
+    {
+     "id": "eci",
+     "n": 31584,
+     "coverage": 0.83074,
+     "gap": 0.06926,
+     "valid": false,
+     "meanWidth": 77.17441,
+     "intervalScore": 94.05427,
+     "rank": 11,
+     "tied": false,
+     "scoreRatio": 0.57343,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.81534, 0.84366],
+      "intervalScore": [83.36127, 104.03859]
+     },
+     "leadCoverage": [0.8431, 0.8384, 0.8348, 0.8341, 0.8294, 0.8292, 0.8321, 0.8319, 0.8317, 0.8285, 0.8268, 0.8251, 0.8254, 0.8263, 0.8261, 0.8285]
+    },
+    {
+     "id": "bocpd_aci",
+     "n": 31584,
+     "coverage": 0.90033,
+     "gap": 0.00033,
+     "valid": true,
+     "meanWidth": 87.96088,
+     "intervalScore": 95.43811,
+     "rank": 11,
+     "tied": true,
+     "scoreRatio": 0.58187,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.88695, 0.91193],
+      "intervalScore": [86.52758, 103.77686]
+     },
+     "leadCoverage": [0.8989, 0.8993, 0.9003, 0.9002, 0.9001, 0.901, 0.9009, 0.9013, 0.9007, 0.9016, 0.9005, 0.9009, 0.8997, 0.9007, 0.899, 0.9005]
+    },
+    {
+     "id": "bocpd",
+     "n": 31584,
+     "coverage": 0.87174,
+     "gap": 0.02826,
+     "valid": false,
+     "meanWidth": 82.72062,
+     "intervalScore": 97.14599,
+     "rank": 13,
+     "tied": false,
+     "scoreRatio": 0.59228,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.85066, 0.89653],
+      "intervalScore": [88.51398, 105.52695]
+     },
+     "leadCoverage": [0.8894, 0.9124, 0.9113, 0.9138, 0.9066, 0.9065, 0.9024, 0.8886, 0.889, 0.8716, 0.8481, 0.8409, 0.8305, 0.8263, 0.8108, 0.7968]
+    },
+    {
+     "id": "sfogd",
+     "n": 31584,
+     "coverage": 0.89593,
+     "gap": 0.00407,
+     "valid": true,
+     "meanWidth": 88.43687,
+     "intervalScore": 99.63168,
+     "rank": 13,
+     "tied": true,
+     "scoreRatio": 0.60744,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.88293, 0.90637],
+      "intervalScore": [90.24835, 107.78293]
+     },
+     "leadCoverage": [0.8979, 0.8973, 0.8962, 0.8966, 0.896, 0.8959, 0.8948, 0.8932, 0.8925, 0.8919, 0.8903, 0.8978, 0.8977, 0.9012, 0.8939, 0.9015]
+    },
+    {
+     "id": "saocp",
+     "n": 31584,
+     "coverage": 0.78144,
+     "gap": 0.11856,
+     "valid": false,
+     "meanWidth": 76.21442,
+     "intervalScore": 111.61418,
+     "rank": 15,
+     "tied": false,
+     "scoreRatio": 0.68049,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.76932, 0.79444],
+      "intervalScore": [101.69337, 120.77441]
+     },
+     "leadCoverage": [0.8894, 0.8515, 0.8343, 0.7998, 0.792, 0.7812, 0.7911, 0.8359, 0.8368, 0.8356, 0.7791, 0.7234, 0.6967, 0.6847, 0.6741, 0.6932]
+    },
+    {
+     "id": "native",
+     "n": 31584,
+     "coverage": 0.70897,
+     "gap": 0.19103,
+     "valid": false,
+     "meanWidth": 57.25406,
+     "intervalScore": 164.01911,
+     "rank": 16,
+     "tied": false,
+     "scoreRatio": 1,
+     "vsNative": 0,
+     "ci": {
+      "coverage": [0.65597, 0.76509],
+      "intervalScore": [137.66501, 190.7327]
+     },
+     "leadCoverage": [0.8698, 0.8369, 0.8076, 0.7685, 0.7451, 0.7281, 0.7178, 0.7058, 0.6893, 0.6788, 0.6679, 0.6604, 0.6478, 0.622, 0.6043, 0.5875]
+    }
+   ]
+  },
+  {
+   "id": "msft",
+   "label": "MSFT stock, 2008–09",
+   "group": "Real data",
+   "source": "Microsoft (MSFT) daily close, 2008-01-02 to 2009-12-31 (505 points, trading day; USD, split and dividend adjusted)",
+   "points": 505,
+   "pairs": 7664,
+   "seconds": 1.5,
+   "rows": [
+    {
+     "id": "nig",
+     "n": 7664,
+     "coverage": 0.8917,
+     "gap": 0.0083,
+     "valid": true,
+     "meanWidth": 21.01086,
+     "intervalScore": 27.41577,
+     "rank": 1,
+     "tied": false,
+     "scoreRatio": 0.96805,
+     "vsNative": 0,
+     "ci": {
+      "coverage": [0.85655, 0.92123],
+      "intervalScore": [24.82524, 30.23091]
+     },
+     "leadCoverage": [0.9049, 0.9126, 0.9061, 0.8996, 0.9033, 0.8988, 0.9004, 0.8896, 0.8849, 0.8866, 0.8924, 0.8877, 0.8851, 0.8739, 0.8648, 0.8728]
+    },
+    {
+     "id": "split",
+     "n": 7664,
+     "coverage": 0.90579,
+     "gap": 0.00579,
+     "valid": true,
+     "meanWidth": 22.36603,
+     "intervalScore": 27.74005,
+     "rank": 1,
+     "tied": true,
+     "scoreRatio": 0.9795,
+     "vsNative": 0,
+     "ci": {
+      "coverage": [0.87083, 0.93429],
+      "intervalScore": [25.26149, 30.75256]
+     },
+     "leadCoverage": [0.8968, 0.9045, 0.9061, 0.9037, 0.9156, 0.9174, 0.9212, 0.9146, 0.9121, 0.9139, 0.9008, 0.9089, 0.8915, 0.8953, 0.8927, 0.8966]
+    },
+    {
+     "id": "nexcp",
+     "n": 7664,
+     "coverage": 0.91414,
+     "gap": 0.01414,
+     "valid": true,
+     "meanWidth": 22.9073,
+     "intervalScore": 27.77834,
+     "rank": 1,
+     "tied": true,
+     "scoreRatio": 0.98085,
+     "vsNative": 0,
+     "ci": {
+      "coverage": [0.88109, 0.9407],
+      "intervalScore": [25.61521, 30.42428]
+     },
+     "leadCoverage": [0.919, 0.9228, 0.9163, 0.9242, 0.9239, 0.9339, 0.9232, 0.925, 0.9163, 0.9118, 0.8987, 0.9237, 0.8957, 0.8953, 0.8948, 0.8987]
+    },
+    {
+     "id": "qt",
+     "n": 7664,
+     "coverage": 0.90814,
+     "gap": 0.00814,
+     "valid": true,
+     "meanWidth": 22.78342,
+     "intervalScore": 27.78995,
+     "rank": 1,
+     "tied": true,
+     "scoreRatio": 0.98126,
+     "vsNative": 0,
+     "ci": {
+      "coverage": [0.87612, 0.93366],
+      "intervalScore": [25.66842, 30.29338]
+     },
+     "leadCoverage": [0.8968, 0.9085, 0.9041, 0.918, 0.9012, 0.905, 0.9066, 0.9125, 0.9079, 0.916, 0.9093, 0.9089, 0.917, 0.9188, 0.9013, 0.8987]
+    },
+    {
+     "id": "pid",
+     "n": 7664,
+     "coverage": 0.90684,
+     "gap": 0.00684,
+     "valid": true,
+     "meanWidth": 22.75409,
+     "intervalScore": 28.12075,
+     "rank": 5,
+     "tied": false,
+     "scoreRatio": 0.99294,
+     "vsNative": 0,
+     "ci": {
+      "coverage": [0.87666, 0.93464],
+      "intervalScore": [25.80634, 30.61393]
+     },
+     "leadCoverage": [0.8947, 0.9065, 0.902, 0.916, 0.8992, 0.9029, 0.9066, 0.9125, 0.9079, 0.916, 0.9072, 0.9131, 0.9128, 0.9145, 0.897, 0.9009]
+    },
+    {
+     "id": "agaci",
+     "n": 7664,
+     "coverage": 0.9148,
+     "gap": 0.0148,
+     "valid": true,
+     "meanWidth": 23.54417,
+     "intervalScore": 28.19998,
+     "rank": 5,
+     "tied": true,
+     "scoreRatio": 0.99574,
+     "vsNative": 0,
+     "ci": {
+      "coverage": [0.88372, 0.9399],
+      "intervalScore": [25.82431, 30.96076]
+     },
+     "leadCoverage": [0.9049, 0.9004, 0.9041, 0.916, 0.9095, 0.9194, 0.9315, 0.925, 0.9184, 0.9076, 0.9198, 0.9068, 0.9191, 0.9167, 0.9227, 0.9159]
+    },
+    {
+     "id": "aci",
+     "n": 7664,
+     "coverage": 0.89966,
+     "gap": 0.00034,
+     "valid": true,
+     "meanWidth": 22.97957,
+     "intervalScore": 28.26071,
+     "rank": 5,
+     "tied": true,
+     "scoreRatio": 0.99788,
+     "vsNative": 0,
+     "ci": {
+      "coverage": [0.86165, 0.9306],
+      "intervalScore": [25.72814, 31.17444]
+     },
+     "leadCoverage": [0.8947, 0.8902, 0.898, 0.8955, 0.9012, 0.907, 0.9046, 0.9021, 0.9038, 0.9013, 0.903, 0.9004, 0.9064, 0.8974, 0.8948, 0.8944]
+    },
+    {
+     "id": "native",
+     "n": 7664,
+     "coverage": 0.84395,
+     "gap": 0.05605,
+     "valid": false,
+     "meanWidth": 17.94737,
+     "intervalScore": 28.32075,
+     "rank": 5,
+     "tied": true,
+     "scoreRatio": 1,
+     "vsNative": 0,
+     "ci": {
+      "coverage": [0.80317, 0.88255],
+      "intervalScore": [24.48487, 32.61657]
+     },
+     "leadCoverage": [0.9049, 0.872, 0.8796, 0.8811, 0.8539, 0.8554, 0.8091, 0.8104, 0.8117, 0.8235, 0.8376, 0.8347, 0.8298, 0.8248, 0.8262, 0.8427]
+    },
+    {
+     "id": "bocpd",
+     "n": 7664,
+     "coverage": 0.86861,
+     "gap": 0.03139,
+     "valid": false,
+     "meanWidth": 20.72633,
+     "intervalScore": 28.55873,
+     "rank": 5,
+     "tied": true,
+     "scoreRatio": 1.0084,
+     "vsNative": 0,
+     "ci": {
+      "coverage": [0.83246, 0.90142],
+      "intervalScore": [25.46505, 31.78857]
+     },
+     "leadCoverage": [0.9069, 0.8598, 0.8776, 0.8689, 0.8807, 0.8905, 0.8776, 0.8875, 0.8682, 0.8739, 0.8629, 0.8686, 0.8553, 0.844, 0.8348, 0.8362]
+    },
+    {
+     "id": "dtaci",
+     "n": 7664,
+     "coverage": 0.8797,
+     "gap": 0.0203,
+     "valid": false,
+     "meanWidth": 21.86929,
+     "intervalScore": 28.57305,
+     "rank": 5,
+     "tied": true,
+     "scoreRatio": 1.00891,
+     "vsNative": 0,
+     "ci": {
+      "coverage": [0.84656, 0.90904],
+      "intervalScore": [25.86303, 31.5915]
+     },
+     "leadCoverage": [0.8866, 0.872, 0.8918, 0.8832, 0.8951, 0.9112, 0.8942, 0.875, 0.8891, 0.8676, 0.8734, 0.875, 0.8511, 0.8697, 0.8777, 0.8599]
+    },
+    {
+     "id": "cpcp",
+     "n": 7664,
+     "coverage": 0.89157,
+     "gap": 0.00843,
+     "valid": true,
+     "meanWidth": 22.7029,
+     "intervalScore": 28.84687,
+     "rank": 5,
+     "tied": true,
+     "scoreRatio": 1.01858,
+     "vsNative": 0,
+     "ci": {
+      "coverage": [0.85738, 0.92043],
+      "intervalScore": [26.08541, 31.94851]
+     },
+     "leadCoverage": [0.917, 0.8821, 0.9082, 0.8914, 0.8951, 0.9215, 0.9046, 0.9125, 0.9079, 0.895, 0.8734, 0.8877, 0.883, 0.8654, 0.8562, 0.8599]
+    },
+    {
+     "id": "belief",
+     "n": 7664,
+     "coverage": 0.95433,
+     "gap": 0.05433,
+     "valid": true,
+     "meanWidth": 26.589,
+     "intervalScore": 29.21337,
+     "rank": 5,
+     "tied": true,
+     "scoreRatio": 1.03152,
+     "vsNative": 0,
+     "ci": {
+      "coverage": [0.93447, 0.97098],
+      "intervalScore": [27.37385, 31.24841]
+     },
+     "leadCoverage": [0.9777, 0.9654, 0.9633, 0.9611, 0.9506, 0.9587, 0.9544, 0.9604, 0.9582, 0.9559, 0.9536, 0.9576, 0.9532, 0.9295, 0.9313, 0.9353]
+    },
+    {
+     "id": "eci",
+     "n": 7664,
+     "coverage": 0.84473,
+     "gap": 0.05527,
+     "valid": false,
+     "meanWidth": 19.92357,
+     "intervalScore": 29.64628,
+     "rank": 13,
+     "tied": false,
+     "scoreRatio": 1.0468,
+     "vsNative": 0,
+     "ci": {
+      "coverage": [0.80199, 0.87819],
+      "intervalScore": [26.29567, 33.425]
+     },
+     "leadCoverage": [0.8543, 0.8557, 0.851, 0.8504, 0.8395, 0.843, 0.8402, 0.8438, 0.8515, 0.8508, 0.8439, 0.8453, 0.8426, 0.844, 0.8283, 0.8297]
+    },
+    {
+     "id": "bocpd_aci",
+     "n": 7664,
+     "coverage": 0.88635,
+     "gap": 0.01365,
+     "valid": true,
+     "meanWidth": 23.33363,
+     "intervalScore": 29.89457,
+     "rank": 13,
+     "tied": true,
+     "scoreRatio": 1.05557,
+     "vsNative": 0,
+     "ci": {
+      "coverage": [0.85414, 0.91388],
+      "intervalScore": [27.08612, 32.9429]
+     },
+     "leadCoverage": [0.8988, 0.8882, 0.8878, 0.8873, 0.8868, 0.8967, 0.8942, 0.8938, 0.8912, 0.8824, 0.8819, 0.8877, 0.8851, 0.8803, 0.8712, 0.8664]
+    },
+    {
+     "id": "saocp",
+     "n": 7664,
+     "coverage": 0.83025,
+     "gap": 0.06975,
+     "valid": false,
+     "meanWidth": 20.31626,
+     "intervalScore": 31.83341,
+     "rank": 15,
+     "tied": false,
+     "scoreRatio": 1.12403,
+     "vsNative": 1,
+     "ci": {
+      "coverage": [0.79908, 0.85893],
+      "intervalScore": [28.3608, 35.59615]
+     },
+     "leadCoverage": [0.9028, 0.878, 0.8347, 0.8197, 0.8395, 0.845, 0.8237, 0.8021, 0.8117, 0.8109, 0.8312, 0.8475, 0.834, 0.8077, 0.8069, 0.7823]
+    },
+    {
+     "id": "sfogd",
+     "n": 7664,
+     "coverage": 0.89418,
+     "gap": 0.00582,
+     "valid": true,
+     "meanWidth": 30.0818,
+     "intervalScore": 42.46027,
+     "rank": 16,
+     "tied": false,
+     "scoreRatio": 1.49926,
+     "vsNative": 1,
+     "ci": {
+      "coverage": [0.85859, 0.92616],
+      "intervalScore": [36.68129, 50.32222]
+     },
+     "leadCoverage": [0.8927, 0.8963, 0.9, 0.9037, 0.8971, 0.8946, 0.8942, 0.8833, 0.9017, 0.8929, 0.8819, 0.8814, 0.8957, 0.891, 0.9077, 0.8922]
+    }
+   ]
+  },
+  {
+   "id": "amzn",
+   "label": "AMZN stock, 2013–16",
+   "group": "Real data",
+   "source": "Amazon (AMZN) daily close, 2013-01-02 to 2016-12-30 (1008 points, trading day; USD, split adjusted)",
+   "points": 1008,
+   "pairs": 15712,
+   "seconds": 3.3,
+   "rows": [
+    {
+     "id": "nexcp",
+     "n": 15712,
+     "coverage": 0.88849,
+     "gap": 0.01151,
+     "valid": true,
+     "meanWidth": 12.7617,
+     "intervalScore": 17.3967,
+     "rank": 1,
+     "tied": false,
+     "scoreRatio": 0.91333,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.8586, 0.92146],
+      "intervalScore": [15.00798, 20.26508]
+     },
+     "leadCoverage": [0.8997, 0.9035, 0.8963, 0.8971, 0.8938, 0.8926, 0.8893, 0.885, 0.8777, 0.8825, 0.8854, 0.8831, 0.8828, 0.8826, 0.8844, 0.879]
+    },
+    {
+     "id": "nig",
+     "n": 15712,
+     "coverage": 0.8701,
+     "gap": 0.0299,
+     "valid": false,
+     "meanWidth": 11.95013,
+     "intervalScore": 17.5245,
+     "rank": 1,
+     "tied": true,
+     "scoreRatio": 0.92004,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.83877, 0.90504],
+      "intervalScore": [14.99339, 20.30436]
+     },
+     "leadCoverage": [0.9278, 0.9065, 0.8862, 0.8809, 0.8696, 0.8703, 0.8589, 0.8586, 0.8603, 0.8641, 0.8588, 0.8626, 0.8582, 0.8579, 0.8524, 0.8459]
+    },
+    {
+     "id": "qt",
+     "n": 15712,
+     "coverage": 0.90377,
+     "gap": 0.00377,
+     "valid": true,
+     "meanWidth": 13.3616,
+     "intervalScore": 17.65975,
+     "rank": 3,
+     "tied": false,
+     "scoreRatio": 0.92714,
+     "vsNative": 0,
+     "ci": {
+      "coverage": [0.87282, 0.93333],
+      "intervalScore": [15.32525, 20.44305]
+     },
+     "leadCoverage": [0.9107, 0.9045, 0.8983, 0.9001, 0.9039, 0.9058, 0.9036, 0.9003, 0.9011, 0.906, 0.9048, 0.9067, 0.9085, 0.9063, 0.903, 0.8966]
+    },
+    {
+     "id": "belief",
+     "n": 15712,
+     "coverage": 0.91974,
+     "gap": 0.01974,
+     "valid": true,
+     "meanWidth": 14.23904,
+     "intervalScore": 17.73135,
+     "rank": 3,
+     "tied": true,
+     "scoreRatio": 0.9309,
+     "vsNative": 0,
+     "ci": {
+      "coverage": [0.89238, 0.94772],
+      "intervalScore": [15.41695, 20.41425]
+     },
+     "leadCoverage": [0.9599, 0.9518, 0.9305, 0.9273, 0.9211, 0.921, 0.9198, 0.9135, 0.9103, 0.907, 0.914, 0.9149, 0.9116, 0.9053, 0.9061, 0.8997]
+    },
+    {
+     "id": "pid",
+     "n": 15712,
+     "coverage": 0.90154,
+     "gap": 0.00154,
+     "valid": true,
+     "meanWidth": 13.59263,
+     "intervalScore": 17.82598,
+     "rank": 5,
+     "tied": false,
+     "scoreRatio": 0.93587,
+     "vsNative": 0,
+     "ci": {
+      "coverage": [0.8741, 0.93096],
+      "intervalScore": [15.51733, 20.59829]
+     },
+     "leadCoverage": [0.9087, 0.9045, 0.8963, 0.8991, 0.9009, 0.9017, 0.8995, 0.8993, 0.8991, 0.904, 0.9028, 0.9046, 0.9065, 0.9022, 0.9009, 0.8945]
+    },
+    {
+     "id": "split",
+     "n": 15712,
+     "coverage": 0.87627,
+     "gap": 0.02373,
+     "valid": false,
+     "meanWidth": 12.54506,
+     "intervalScore": 18.05731,
+     "rank": 5,
+     "tied": true,
+     "scoreRatio": 0.94801,
+     "vsNative": 0,
+     "ci": {
+      "coverage": [0.844, 0.91175],
+      "intervalScore": [15.34574, 21.01444]
+     },
+     "leadCoverage": [0.8887, 0.8935, 0.8872, 0.8759, 0.8807, 0.8804, 0.8751, 0.8749, 0.8685, 0.8652, 0.871, 0.8749, 0.8787, 0.8692, 0.8731, 0.8625]
+    },
+    {
+     "id": "agaci",
+     "n": 15712,
+     "coverage": 0.89969,
+     "gap": 0.00031,
+     "valid": true,
+     "meanWidth": 14.01376,
+     "intervalScore": 18.45726,
+     "rank": 7,
+     "tied": false,
+     "scoreRatio": 0.96901,
+     "vsNative": 0,
+     "ci": {
+      "coverage": [0.87393, 0.93151],
+      "intervalScore": [15.95243, 21.34838]
+     },
+     "leadCoverage": [0.9077, 0.9085, 0.9074, 0.9082, 0.91, 0.9068, 0.9005, 0.8952, 0.8899, 0.8958, 0.8946, 0.8954, 0.8962, 0.8929, 0.8958, 0.8893]
+    },
+    {
+     "id": "bocpd",
+     "n": 15712,
+     "coverage": 0.83764,
+     "gap": 0.06236,
+     "valid": false,
+     "meanWidth": 11.09162,
+     "intervalScore": 18.69215,
+     "rank": 7,
+     "tied": true,
+     "scoreRatio": 0.98134,
+     "vsNative": 0,
+     "ci": {
+      "coverage": [0.81111, 0.86999],
+      "intervalScore": [15.78408, 21.71292]
+     },
+     "leadCoverage": [0.9017, 0.8894, 0.8711, 0.8587, 0.8372, 0.847, 0.8386, 0.8433, 0.8298, 0.8223, 0.8168, 0.8082, 0.8027, 0.8095, 0.8132, 0.8087]
+    },
+    {
+     "id": "eci",
+     "n": 15712,
+     "coverage": 0.84006,
+     "gap": 0.05994,
+     "valid": false,
+     "meanWidth": 11.44514,
+     "intervalScore": 18.74486,
+     "rank": 7,
+     "tied": true,
+     "scoreRatio": 0.98411,
+     "vsNative": 0,
+     "ci": {
+      "coverage": [0.8053, 0.87304],
+      "intervalScore": [15.75237, 21.68563]
+     },
+     "leadCoverage": [0.8696, 0.8623, 0.8479, 0.8486, 0.8423, 0.8369, 0.8345, 0.8352, 0.8369, 0.8376, 0.8342, 0.8379, 0.8325, 0.8321, 0.8287, 0.8221]
+    },
+    {
+     "id": "native",
+     "n": 15712,
+     "coverage": 0.76324,
+     "gap": 0.13676,
+     "valid": false,
+     "meanWidth": 8.78915,
+     "intervalScore": 19.04757,
+     "rank": 7,
+     "tied": true,
+     "scoreRatio": 1,
+     "vsNative": 0,
+     "ci": {
+      "coverage": [0.7209, 0.81161],
+      "intervalScore": [15.22979, 23.15261]
+     },
+     "leadCoverage": [0.8335, 0.8201, 0.8127, 0.7941, 0.7685, 0.7791, 0.7624, 0.7691, 0.7554, 0.7416, 0.7308, 0.719, 0.7379, 0.7343, 0.7307, 0.7177]
+    },
+    {
+     "id": "aci",
+     "n": 15712,
+     "coverage": 0.89549,
+     "gap": 0.00451,
+     "valid": true,
+     "meanWidth": 14.60566,
+     "intervalScore": 19.11883,
+     "rank": 11,
+     "tied": false,
+     "scoreRatio": 1.00374,
+     "vsNative": 0,
+     "ci": {
+      "coverage": [0.86761, 0.92689],
+      "intervalScore": [16.54422, 22.02578]
+     },
+     "leadCoverage": [0.8967, 0.8975, 0.8953, 0.893, 0.8938, 0.8977, 0.8954, 0.8962, 0.897, 0.8968, 0.8956, 0.8964, 0.8962, 0.896, 0.8937, 0.8904]
+    },
+    {
+     "id": "cpcp",
+     "n": 15712,
+     "coverage": 0.86176,
+     "gap": 0.03824,
+     "valid": false,
+     "meanWidth": 12.6175,
+     "intervalScore": 19.14693,
+     "rank": 11,
+     "tied": true,
+     "scoreRatio": 1.00522,
+     "vsNative": 0,
+     "ci": {
+      "coverage": [0.8327, 0.89206],
+      "intervalScore": [16.17984, 22.06348]
+     },
+     "leadCoverage": [0.9127, 0.9065, 0.8953, 0.8739, 0.8706, 0.8774, 0.8701, 0.8586, 0.8512, 0.8417, 0.8393, 0.84, 0.8376, 0.8363, 0.84, 0.8335]
+    },
+    {
+     "id": "dtaci",
+     "n": 15712,
+     "coverage": 0.87093,
+     "gap": 0.02907,
+     "valid": false,
+     "meanWidth": 13.24379,
+     "intervalScore": 19.18363,
+     "rank": 11,
+     "tied": true,
+     "scoreRatio": 1.00714,
+     "vsNative": 0,
+     "ci": {
+      "coverage": [0.84379, 0.90362],
+      "intervalScore": [16.34909, 22.14748]
+     },
+     "leadCoverage": [0.8977, 0.8935, 0.8922, 0.885, 0.8736, 0.8794, 0.866, 0.8718, 0.8614, 0.8744, 0.8741, 0.8718, 0.8602, 0.8538, 0.8514, 0.8263]
+    },
+    {
+     "id": "saocp",
+     "n": 15712,
+     "coverage": 0.80474,
+     "gap": 0.09526,
+     "valid": false,
+     "meanWidth": 10.87889,
+     "intervalScore": 19.9106,
+     "rank": 11,
+     "tied": true,
+     "scoreRatio": 1.04531,
+     "vsNative": 0,
+     "ci": {
+      "coverage": [0.77535, 0.83293],
+      "intervalScore": [16.67966, 23.14362]
+     },
+     "leadCoverage": [0.9017, 0.8683, 0.8288, 0.8285, 0.8099, 0.7933, 0.7959, 0.8138, 0.7829, 0.7794, 0.8055, 0.7867, 0.7811, 0.7806, 0.7616, 0.7528]
+    },
+    {
+     "id": "bocpd_aci",
+     "n": 15712,
+     "coverage": 0.89282,
+     "gap": 0.00718,
+     "valid": true,
+     "meanWidth": 15.49225,
+     "intervalScore": 19.97146,
+     "rank": 11,
+     "tied": true,
+     "scoreRatio": 1.0485,
+     "vsNative": 0,
+     "ci": {
+      "coverage": [0.86573, 0.9206],
+      "intervalScore": [17.50109, 22.44368]
+     },
+     "leadCoverage": [0.9037, 0.8975, 0.8963, 0.8961, 0.8918, 0.8926, 0.8914, 0.8911, 0.893, 0.8917, 0.8925, 0.8903, 0.889, 0.8888, 0.8885, 0.8904]
+    },
+    {
+     "id": "sfogd",
+     "n": 15712,
+     "coverage": 0.89053,
+     "gap": 0.00947,
+     "valid": true,
+     "meanWidth": 15.0945,
+     "intervalScore": 20.56657,
+     "rank": 16,
+     "tied": false,
+     "scoreRatio": 1.07975,
+     "vsNative": 0,
+     "ci": {
+      "coverage": [0.86423, 0.91586],
+      "intervalScore": [18.15678, 23.23155]
+     },
+     "leadCoverage": [0.8957, 0.8965, 0.8953, 0.892, 0.8908, 0.8926, 0.8904, 0.8952, 0.893, 0.8836, 0.8874, 0.8872, 0.8828, 0.8826, 0.8885, 0.8945]
+    }
+   ]
+  },
+  {
+   "id": "electricity",
+   "label": "Electricity demand, 30 min",
+   "group": "Real data",
+   "source": "Electricity demand, England and Wales, half-hourly, 2000-06-05 00:00 to 2000-07-16 23:30 (2016 points, 30 min; MW)",
+   "points": 2000,
+   "pairs": 31584,
+   "seconds": 7.9,
+   "rows": [
+    {
+     "id": "nexcp",
+     "n": 31584,
+     "coverage": 0.91128,
+     "gap": 0.01128,
+     "valid": true,
+     "meanWidth": 89.0983,
+     "intervalScore": 96.80863,
+     "rank": 1,
+     "tied": false,
+     "scoreRatio": 0.94788,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.89506, 0.92438],
+      "intervalScore": [94.41877, 99.60544]
+     },
+     "leadCoverage": [0.9246, 0.9235, 0.9169, 0.9228, 0.9107, 0.9136, 0.9049, 0.9053, 0.9007, 0.9046, 0.902, 0.9034, 0.9048, 0.9114, 0.9148, 0.9163]
+    },
+    {
+     "id": "nig",
+     "n": 31584,
+     "coverage": 0.89251,
+     "gap": 0.00749,
+     "valid": true,
+     "meanWidth": 86.34177,
+     "intervalScore": 97.07781,
+     "rank": 1,
+     "tied": true,
+     "scoreRatio": 0.95051,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.87322, 0.90862],
+      "intervalScore": [94.80292, 100.07648]
+     },
+     "leadCoverage": [0.8849, 0.8802, 0.8856, 0.8886, 0.8829, 0.8813, 0.8781, 0.8891, 0.8931, 0.8894, 0.8944, 0.8978, 0.9033, 0.9098, 0.9138, 0.9086]
+    },
+    {
+     "id": "split",
+     "n": 31584,
+     "coverage": 0.90289,
+     "gap": 0.00289,
+     "valid": true,
+     "meanWidth": 88.0849,
+     "intervalScore": 97.84446,
+     "rank": 3,
+     "tied": false,
+     "scoreRatio": 0.95802,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.88318, 0.91877],
+      "intervalScore": [94.95667, 101.4067]
+     },
+     "leadCoverage": [0.9175, 0.9124, 0.9083, 0.9123, 0.9076, 0.908, 0.9044, 0.9048, 0.8971, 0.896, 0.8918, 0.8927, 0.8921, 0.9012, 0.9011, 0.8984]
+    },
+    {
+     "id": "qt",
+     "n": 31584,
+     "coverage": 0.90312,
+     "gap": 0.00312,
+     "valid": true,
+     "meanWidth": 88.20516,
+     "intervalScore": 97.96742,
+     "rank": 3,
+     "tied": true,
+     "scoreRatio": 0.95923,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.88739, 0.91823],
+      "intervalScore": [96.10125, 100.36867]
+     },
+     "leadCoverage": [0.9015, 0.9019, 0.9028, 0.9022, 0.9036, 0.9025, 0.9019, 0.9013, 0.9017, 0.9021, 0.9025, 0.9029, 0.9033, 0.9052, 0.9067, 0.9081]
+    },
+    {
+     "id": "agaci",
+     "n": 31584,
+     "coverage": 0.9097,
+     "gap": 0.0097,
+     "valid": true,
+     "meanWidth": 90.13116,
+     "intervalScore": 99.28175,
+     "rank": 5,
+     "tied": false,
+     "scoreRatio": 0.97209,
+     "vsNative": 0,
+     "ci": {
+      "coverage": [0.89208, 0.92453],
+      "intervalScore": [96.24299, 103.2586]
+     },
+     "leadCoverage": [0.9135, 0.9079, 0.9098, 0.9112, 0.9132, 0.906, 0.9069, 0.9033, 0.9052, 0.9066, 0.9066, 0.9085, 0.913, 0.9134, 0.9143, 0.9158]
+    },
+    {
+     "id": "pid",
+     "n": 31584,
+     "coverage": 0.90327,
+     "gap": 0.00327,
+     "valid": true,
+     "meanWidth": 89.68982,
+     "intervalScore": 99.46834,
+     "rank": 5,
+     "tied": true,
+     "scoreRatio": 0.97392,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.88771, 0.91699],
+      "intervalScore": [97.53376, 102.13179]
+     },
+     "leadCoverage": [0.9015, 0.9019, 0.9023, 0.9022, 0.9031, 0.902, 0.9024, 0.9018, 0.9027, 0.9021, 0.903, 0.9034, 0.9048, 0.9052, 0.9062, 0.9081]
+    },
+    {
+     "id": "dtaci",
+     "n": 31584,
+     "coverage": 0.88804,
+     "gap": 0.01196,
+     "valid": true,
+     "meanWidth": 86.79862,
+     "intervalScore": 99.86061,
+     "rank": 5,
+     "tied": true,
+     "scoreRatio": 0.97776,
+     "vsNative": 0,
+     "ci": {
+      "coverage": [0.87152, 0.90307],
+      "intervalScore": [97.26467, 102.80217]
+     },
+     "leadCoverage": [0.8989, 0.9019, 0.8972, 0.8926, 0.8995, 0.8979, 0.8827, 0.8911, 0.8936, 0.8787, 0.872, 0.8749, 0.8804, 0.8844, 0.8827, 0.8795]
+    },
+    {
+     "id": "belief",
+     "n": 31584,
+     "coverage": 0.9432,
+     "gap": 0.0432,
+     "valid": true,
+     "meanWidth": 95.70196,
+     "intervalScore": 99.97073,
+     "rank": 5,
+     "tied": true,
+     "scoreRatio": 0.97884,
+     "vsNative": 0,
+     "ci": {
+      "coverage": [0.93024, 0.95329],
+      "intervalScore": [97.10357, 103.07407]
+     },
+     "leadCoverage": [0.9452, 0.9431, 0.9456, 0.9486, 0.949, 0.954, 0.9469, 0.9413, 0.9397, 0.9356, 0.936, 0.9395, 0.945, 0.9409, 0.9414, 0.9393]
+    },
+    {
+     "id": "aci",
+     "n": 31584,
+     "coverage": 0.90188,
+     "gap": 0.00188,
+     "valid": true,
+     "meanWidth": 89.18931,
+     "intervalScore": 100.06447,
+     "rank": 5,
+     "tied": true,
+     "scoreRatio": 0.97976,
+     "vsNative": 0,
+     "ci": {
+      "coverage": [0.88139, 0.92037],
+      "intervalScore": [96.96884, 103.69813]
+     },
+     "leadCoverage": [0.902, 0.9014, 0.9028, 0.9022, 0.9021, 0.904, 0.9029, 0.9018, 0.9007, 0.9006, 0.901, 0.9004, 0.9008, 0.9022, 0.9031, 0.9025]
+    },
+    {
+     "id": "cpcp",
+     "n": 31584,
+     "coverage": 0.90264,
+     "gap": 0.00264,
+     "valid": true,
+     "meanWidth": 90.05359,
+     "intervalScore": 101.3921,
+     "rank": 5,
+     "tied": true,
+     "scoreRatio": 0.99276,
+     "vsNative": 0,
+     "ci": {
+      "coverage": [0.8877, 0.91728],
+      "intervalScore": [99.02905, 104.1121]
+     },
+     "leadCoverage": [0.9306, 0.9084, 0.9018, 0.9072, 0.9076, 0.9181, 0.9044, 0.8942, 0.8905, 0.8792, 0.8822, 0.8907, 0.8987, 0.9058, 0.9062, 0.9163]
+    },
+    {
+     "id": "native",
+     "n": 31584,
+     "coverage": 0.79866,
+     "gap": 0.10134,
+     "valid": false,
+     "meanWidth": 74.16595,
+     "intervalScore": 102.13183,
+     "rank": 5,
+     "tied": true,
+     "scoreRatio": 1,
+     "vsNative": 0,
+     "ci": {
+      "coverage": [0.77676, 0.81908],
+      "intervalScore": [98.34889, 106.04384]
+     },
+     "leadCoverage": [0.9105, 0.8812, 0.8856, 0.8578, 0.8491, 0.8115, 0.8128, 0.8081, 0.8044, 0.7935, 0.7649, 0.7458, 0.7379, 0.7203, 0.7042, 0.6861]
+    },
+    {
+     "id": "eci",
+     "n": 31584,
+     "coverage": 0.83716,
+     "gap": 0.06284,
+     "valid": false,
+     "meanWidth": 81.71497,
+     "intervalScore": 103.93966,
+     "rank": 12,
+     "tied": false,
+     "scoreRatio": 1.0177,
+     "vsNative": 0,
+     "ci": {
+      "coverage": [0.81959, 0.85508],
+      "intervalScore": [101.43814, 106.64354]
+     },
+     "leadCoverage": [0.8366, 0.8329, 0.8368, 0.8366, 0.8334, 0.8353, 0.8326, 0.8314, 0.8338, 0.8371, 0.84, 0.8404, 0.8412, 0.8421, 0.8424, 0.8423]
+    },
+    {
+     "id": "bocpd",
+     "n": 31584,
+     "coverage": 0.8668,
+     "gap": 0.0332,
+     "valid": false,
+     "meanWidth": 83.80258,
+     "intervalScore": 105.1845,
+     "rank": 12,
+     "tied": true,
+     "scoreRatio": 1.02989,
+     "vsNative": 0,
+     "ci": {
+      "coverage": [0.84965, 0.88537],
+      "intervalScore": [101.95577, 108.95435]
+     },
+     "leadCoverage": [0.8919, 0.8636, 0.8625, 0.8608, 0.8602, 0.861, 0.8422, 0.8334, 0.8246, 0.8295, 0.8558, 0.8673, 0.888, 0.9052, 0.9174, 0.9061]
+    },
+    {
+     "id": "bocpd_aci",
+     "n": 31584,
+     "coverage": 0.89783,
+     "gap": 0.00217,
+     "valid": true,
+     "meanWidth": 93.82892,
+     "intervalScore": 108.99288,
+     "rank": 14,
+     "tied": false,
+     "scoreRatio": 1.06718,
+     "vsNative": 1,
+     "ci": {
+      "coverage": [0.88409, 0.91344],
+      "intervalScore": [105.51383, 112.94635]
+     },
+     "leadCoverage": [0.8989, 0.8963, 0.8967, 0.8981, 0.898, 0.8979, 0.8973, 0.8967, 0.8956, 0.8955, 0.8964, 0.8973, 0.8987, 0.8996, 0.9016, 0.9005]
+    },
+    {
+     "id": "sfogd",
+     "n": 31584,
+     "coverage": 0.90217,
+     "gap": 0.00217,
+     "valid": true,
+     "meanWidth": 101.34521,
+     "intervalScore": 116.88891,
+     "rank": 15,
+     "tied": false,
+     "scoreRatio": 1.14449,
+     "vsNative": 1,
+     "ci": {
+      "coverage": [0.88985, 0.91324],
+      "intervalScore": [111.13052, 123.82952]
+     },
+     "leadCoverage": [0.8984, 0.8973, 0.8992, 0.8981, 0.9006, 0.9005, 0.9034, 0.9048, 0.9067, 0.9077, 0.9081, 0.909, 0.9038, 0.8996, 0.8985, 0.8989]
+    },
+    {
+     "id": "saocp",
+     "n": 31584,
+     "coverage": 0.76187,
+     "gap": 0.13813,
+     "valid": false,
+     "meanWidth": 74.4168,
+     "intervalScore": 122.64099,
+     "rank": 15,
+     "tied": true,
+     "scoreRatio": 1.20081,
+     "vsNative": 1,
+     "ci": {
+      "coverage": [0.74901, 0.77754],
+      "intervalScore": [118.7796, 127.20342]
+     },
+     "leadCoverage": [0.8874, 0.8218, 0.7859, 0.7489, 0.7451, 0.7201, 0.7132, 0.7078, 0.7035, 0.7194, 0.7151, 0.7123, 0.7715, 0.8079, 0.823, 0.8065]
+    }
+   ]
+  },
+  {
+   "id": "co2",
+   "label": "CO₂ Mauna Loa, weekly",
+   "group": "Real data",
+   "source": "Mauna Loa atmospheric CO2, weekly, 1963-09-07 to 2001-12-29 (2000 points, week; ppm)",
+   "points": 2000,
+   "pairs": 31584,
+   "seconds": 7.2,
+   "rows": [
+    {
+     "id": "split",
+     "n": 31584,
+     "coverage": 0.8977,
+     "gap": 0.0023,
+     "valid": true,
+     "meanWidth": 12.78203,
+     "intervalScore": 14.88298,
+     "rank": 1,
+     "tied": false,
+     "scoreRatio": 0.82909,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.88103, 0.91726],
+      "intervalScore": [14.26641, 15.42162]
+     },
+     "leadCoverage": [0.8939, 0.8978, 0.8897, 0.8805, 0.8874, 0.8893, 0.8918, 0.8922, 0.9012, 0.9041, 0.9035, 0.9059, 0.9043, 0.9073, 0.9087, 0.9061]
+    },
+    {
+     "id": "belief",
+     "n": 31584,
+     "coverage": 0.91727,
+     "gap": 0.01727,
+     "valid": true,
+     "meanWidth": 13.40485,
+     "intervalScore": 15.14772,
+     "rank": 2,
+     "tied": false,
+     "scoreRatio": 0.84383,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.90071, 0.93482],
+      "intervalScore": [14.65642, 15.61799]
+     },
+     "leadCoverage": [0.9558, 0.9477, 0.9325, 0.9304, 0.9243, 0.9207, 0.914, 0.9068, 0.9052, 0.9016, 0.9071, 0.9039, 0.9023, 0.9032, 0.9097, 0.9102]
+    },
+    {
+     "id": "agaci",
+     "n": 31584,
+     "coverage": 0.9027,
+     "gap": 0.0027,
+     "valid": true,
+     "meanWidth": 13.14225,
+     "intervalScore": 15.16654,
+     "rank": 2,
+     "tied": true,
+     "scoreRatio": 0.84488,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.88616, 0.92216],
+      "intervalScore": [14.58093, 15.67221]
+     },
+     "leadCoverage": [0.9075, 0.9049, 0.9018, 0.8981, 0.8965, 0.8989, 0.8963, 0.8947, 0.9042, 0.9031, 0.904, 0.9039, 0.9043, 0.9078, 0.9097, 0.9076]
+    },
+    {
+     "id": "nexcp",
+     "n": 31584,
+     "coverage": 0.89577,
+     "gap": 0.00423,
+     "valid": true,
+     "meanWidth": 12.87903,
+     "intervalScore": 15.18906,
+     "rank": 2,
+     "tied": true,
+     "scoreRatio": 0.84614,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.87871, 0.9151],
+      "intervalScore": [14.58792, 15.7264]
+     },
+     "leadCoverage": [0.9085, 0.9084, 0.9048, 0.8946, 0.8945, 0.8934, 0.8918, 0.8911, 0.8905, 0.8919, 0.8903, 0.8917, 0.8936, 0.891, 0.8965, 0.8994]
+    },
+    {
+     "id": "qt",
+     "n": 31584,
+     "coverage": 0.9003,
+     "gap": 0.0003,
+     "valid": true,
+     "meanWidth": 13.21893,
+     "intervalScore": 15.37858,
+     "rank": 5,
+     "tied": false,
+     "scoreRatio": 0.85669,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.88356, 0.91961],
+      "intervalScore": [14.82189, 15.92487]
+     },
+     "leadCoverage": [0.904, 0.9054, 0.9053, 0.9047, 0.9016, 0.901, 0.9009, 0.9013, 0.9012, 0.8995, 0.8979, 0.8973, 0.8957, 0.8961, 0.8965, 0.8964]
+    },
+    {
+     "id": "aci",
+     "n": 31584,
+     "coverage": 0.89818,
+     "gap": 0.00182,
+     "valid": true,
+     "meanWidth": 13.18358,
+     "intervalScore": 15.43044,
+     "rank": 5,
+     "tied": true,
+     "scoreRatio": 0.85958,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.8805, 0.91939],
+      "intervalScore": [14.78406, 16.00386]
+     },
+     "leadCoverage": [0.8999, 0.9004, 0.8982, 0.8976, 0.897, 0.8969, 0.8968, 0.8977, 0.8976, 0.898, 0.8974, 0.8978, 0.8982, 0.8991, 0.8995, 0.8984]
+    },
+    {
+     "id": "pid",
+     "n": 31584,
+     "coverage": 0.90017,
+     "gap": 0.00017,
+     "valid": true,
+     "meanWidth": 13.4106,
+     "intervalScore": 15.59023,
+     "rank": 7,
+     "tied": false,
+     "scoreRatio": 0.86849,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.88309, 0.91944],
+      "intervalScore": [15.0372, 16.12813]
+     },
+     "leadCoverage": [0.903, 0.9059, 0.9048, 0.9047, 0.9016, 0.9015, 0.9009, 0.9013, 0.9012, 0.899, 0.8979, 0.8968, 0.8952, 0.8961, 0.8965, 0.8964]
+    },
+    {
+     "id": "nig",
+     "n": 31584,
+     "coverage": 0.84533,
+     "gap": 0.05467,
+     "valid": false,
+     "meanWidth": 11.38544,
+     "intervalScore": 16.30384,
+     "rank": 8,
+     "tied": false,
+     "scoreRatio": 0.90824,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.82183, 0.87167],
+      "intervalScore": [15.26373, 17.19418]
+     },
+     "leadCoverage": [0.8834, 0.8827, 0.863, 0.8578, 0.8541, 0.8494, 0.8467, 0.8441, 0.8353, 0.8336, 0.8288, 0.8287, 0.83, 0.8258, 0.8292, 0.8315]
+    },
+    {
+     "id": "native",
+     "n": 31584,
+     "coverage": 0.77685,
+     "gap": 0.12315,
+     "valid": false,
+     "meanWidth": 8.30823,
+     "intervalScore": 17.95106,
+     "rank": 9,
+     "tied": false,
+     "scoreRatio": 1,
+     "vsNative": 0,
+     "ci": {
+      "coverage": [0.74855, 0.80833],
+      "intervalScore": [16.16625, 19.67412]
+     },
+     "leadCoverage": [0.8869, 0.8953, 0.8564, 0.8301, 0.8072, 0.7868, 0.7709, 0.7554, 0.7491, 0.7387, 0.7379, 0.725, 0.7221, 0.7234, 0.72, 0.7203]
+    },
+    {
+     "id": "dtaci",
+     "n": 31584,
+     "coverage": 0.86018,
+     "gap": 0.03982,
+     "valid": false,
+     "meanWidth": 12.33107,
+     "intervalScore": 17.9844,
+     "rank": 9,
+     "tied": true,
+     "scoreRatio": 1.00186,
+     "vsNative": 0,
+     "ci": {
+      "coverage": [0.83829, 0.88491],
+      "intervalScore": [16.77416, 19.14411]
+     },
+     "leadCoverage": [0.8984, 0.9014, 0.8912, 0.8886, 0.89, 0.8732, 0.8518, 0.8501, 0.854, 0.8574, 0.8532, 0.8454, 0.8275, 0.8288, 0.8338, 0.8162]
+    },
+    {
+     "id": "eci",
+     "n": 31584,
+     "coverage": 0.8232,
+     "gap": 0.0768,
+     "valid": false,
+     "meanWidth": 12.12305,
+     "intervalScore": 18.4856,
+     "rank": 9,
+     "tied": true,
+     "scoreRatio": 1.02978,
+     "vsNative": 0,
+     "ci": {
+      "coverage": [0.79842, 0.85017],
+      "intervalScore": [17.32728, 19.53254]
+     },
+     "leadCoverage": [0.8467, 0.8475, 0.8383, 0.8356, 0.8299, 0.8287, 0.8235, 0.8182, 0.815, 0.8123, 0.8101, 0.8099, 0.8112, 0.8136, 0.8129, 0.8173]
+    },
+    {
+     "id": "sfogd",
+     "n": 31584,
+     "coverage": 0.89511,
+     "gap": 0.00489,
+     "valid": true,
+     "meanWidth": 14.69861,
+     "intervalScore": 18.87468,
+     "rank": 9,
+     "tied": true,
+     "scoreRatio": 1.05145,
+     "vsNative": 0,
+     "ci": {
+      "coverage": [0.87685, 0.91217],
+      "intervalScore": [17.97771, 20.21121]
+     },
+     "leadCoverage": [0.8979, 0.8968, 0.8972, 0.8986, 0.897, 0.8959, 0.8948, 0.8937, 0.8936, 0.8924, 0.8928, 0.8932, 0.8926, 0.894, 0.896, 0.8948]
+    },
+    {
+     "id": "bocpd_aci",
+     "n": 31584,
+     "coverage": 0.89362,
+     "gap": 0.00638,
+     "valid": true,
+     "meanWidth": 15.54346,
+     "intervalScore": 19.74891,
+     "rank": 13,
+     "tied": false,
+     "scoreRatio": 1.10015,
+     "vsNative": 1,
+     "ci": {
+      "coverage": [0.87552, 0.91052],
+      "intervalScore": [18.91533, 20.53811]
+     },
+     "leadCoverage": [0.8984, 0.8993, 0.8962, 0.8951, 0.893, 0.8924, 0.8943, 0.8927, 0.8915, 0.8914, 0.8918, 0.8922, 0.8926, 0.8925, 0.8919, 0.8923]
+    },
+    {
+     "id": "bocpd",
+     "n": 31584,
+     "coverage": 0.78999,
+     "gap": 0.11001,
+     "valid": false,
+     "meanWidth": 10.39965,
+     "intervalScore": 21.23749,
+     "rank": 14,
+     "tied": false,
+     "scoreRatio": 1.18308,
+     "vsNative": 1,
+     "ci": {
+      "coverage": [0.76398, 0.81964],
+      "intervalScore": [19.35073, 23.09862]
+     },
+     "leadCoverage": [0.8849, 0.8858, 0.8574, 0.8255, 0.8137, 0.8034, 0.7962, 0.7909, 0.779, 0.7747, 0.7643, 0.7499, 0.7455, 0.7295, 0.72, 0.7152]
+    },
+    {
+     "id": "cpcp",
+     "n": 31584,
+     "coverage": 0.80845,
+     "gap": 0.09155,
+     "valid": false,
+     "meanWidth": 11.49094,
+     "intervalScore": 21.68891,
+     "rank": 15,
+     "tied": false,
+     "scoreRatio": 1.20822,
+     "vsNative": 1,
+     "ci": {
+      "coverage": [0.78232, 0.83912],
+      "intervalScore": [19.92211, 23.49292]
+     },
+     "leadCoverage": [0.9105, 0.9029, 0.8826, 0.8588, 0.845, 0.8403, 0.829, 0.8127, 0.8028, 0.7854, 0.7674, 0.758, 0.7466, 0.7371, 0.7262, 0.7254]
+    },
+    {
+     "id": "saocp",
+     "n": 31584,
+     "coverage": 0.75975,
+     "gap": 0.14025,
+     "valid": false,
+     "meanWidth": 9.50363,
+     "intervalScore": 22.24791,
+     "rank": 16,
+     "tied": false,
+     "scoreRatio": 1.23936,
+     "vsNative": 1,
+     "ci": {
+      "coverage": [0.73609, 0.78594],
+      "intervalScore": [20.16456, 24.29617]
+     },
+     "leadCoverage": [0.8889, 0.8812, 0.8453, 0.8129, 0.7804, 0.7665, 0.7552, 0.7448, 0.7258, 0.7245, 0.7191, 0.725, 0.7125, 0.7096, 0.691, 0.6687]
+    }
+   ]
+  },
+  {
+   "id": "elnino",
+   "label": "Sea temperature (El Niño)",
+   "group": "Real data",
+   "source": "Sea surface temperature, Nino 1+2 region, 1950-01 to 2010-12 (732 points, month; °C)",
+   "points": 732,
+   "pairs": 11296,
+   "seconds": 2.3,
+   "rows": [
+    {
+     "id": "nexcp",
+     "n": 11296,
+     "coverage": 0.91023,
+     "gap": 0.01023,
+     "valid": true,
+     "meanWidth": 111.94006,
+     "intervalScore": 125.39046,
+     "rank": 1,
+     "tied": false,
+     "scoreRatio": 0.6634,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.89151, 0.92789],
+      "intervalScore": [121.11893, 129.98049]
+     },
+     "leadCoverage": [0.914, 0.9166, 0.9107, 0.9203, 0.9201, 0.9184, 0.9196, 0.9194, 0.9149, 0.9033, 0.9044, 0.897, 0.8967, 0.8935, 0.9004, 0.9132]
+    },
+    {
+     "id": "nig",
+     "n": 11296,
+     "coverage": 0.89209,
+     "gap": 0.00791,
+     "valid": true,
+     "meanWidth": 108.19215,
+     "intervalScore": 125.44731,
+     "rank": 1,
+     "tied": true,
+     "scoreRatio": 0.6637,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.8712, 0.91072],
+      "intervalScore": [120.46024, 130.67477]
+     },
+     "leadCoverage": [0.9015, 0.8915, 0.9066, 0.9091, 0.9116, 0.9198, 0.9027, 0.8953, 0.8823, 0.8777, 0.8716, 0.8698, 0.8694, 0.8763, 0.8918, 0.8944]
+    },
+    {
+     "id": "split",
+     "n": 11296,
+     "coverage": 0.90466,
+     "gap": 0.00466,
+     "valid": true,
+     "meanWidth": 110.62013,
+     "intervalScore": 125.87268,
+     "rank": 1,
+     "tied": true,
+     "scoreRatio": 0.66595,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.88647, 0.92317],
+      "intervalScore": [121.45942, 130.59943]
+     },
+     "leadCoverage": [0.9126, 0.9138, 0.9024, 0.9147, 0.9074, 0.91, 0.9097, 0.9066, 0.9078, 0.9075, 0.8944, 0.8941, 0.8953, 0.8892, 0.9048, 0.903]
+    },
+    {
+     "id": "belief",
+     "n": 11296,
+     "coverage": 0.92679,
+     "gap": 0.02679,
+     "valid": true,
+     "meanWidth": 115.01797,
+     "intervalScore": 125.93526,
+     "rank": 1,
+     "tied": true,
+     "scoreRatio": 0.66628,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.90966, 0.94378],
+      "intervalScore": [121.93978, 130.34303]
+     },
+     "leadCoverage": [0.9348, 0.9374, 0.9303, 0.9357, 0.9299, 0.9311, 0.9323, 0.942, 0.9262, 0.9218, 0.9116, 0.9156, 0.9125, 0.9194, 0.9206, 0.9262]
+    },
+    {
+     "id": "cpcp",
+     "n": 11296,
+     "coverage": 0.90811,
+     "gap": 0.00811,
+     "valid": true,
+     "meanWidth": 112.34429,
+     "intervalScore": 126.59022,
+     "rank": 5,
+     "tied": false,
+     "scoreRatio": 0.66975,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.88885, 0.92593],
+      "intervalScore": [122.14135, 131.66604]
+     },
+     "leadCoverage": [0.9196, 0.9152, 0.9093, 0.9259, 0.9257, 0.917, 0.9238, 0.9165, 0.9177, 0.8905, 0.8773, 0.8741, 0.8981, 0.9108, 0.9019, 0.9045]
+    },
+    {
+     "id": "qt",
+     "n": 11296,
+     "coverage": 0.89439,
+     "gap": 0.00561,
+     "valid": true,
+     "meanWidth": 109.49026,
+     "intervalScore": 126.92828,
+     "rank": 5,
+     "tied": true,
+     "scoreRatio": 0.67154,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.87118, 0.91368],
+      "intervalScore": [121.85157, 132.27474]
+     },
+     "leadCoverage": [0.9057, 0.9054, 0.8912, 0.8937, 0.8948, 0.9001, 0.9013, 0.8996, 0.895, 0.8947, 0.8859, 0.8841, 0.8881, 0.8892, 0.8918, 0.8886]
+    },
+    {
+     "id": "bocpd",
+     "n": 11296,
+     "coverage": 0.89607,
+     "gap": 0.00393,
+     "valid": true,
+     "meanWidth": 109.85658,
+     "intervalScore": 126.93945,
+     "rank": 5,
+     "tied": true,
+     "scoreRatio": 0.6716,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.87666, 0.91476],
+      "intervalScore": [121.79805, 132.96183]
+     },
+     "leadCoverage": [0.9126, 0.904, 0.9233, 0.9245, 0.9201, 0.9269, 0.914, 0.9109, 0.878, 0.8706, 0.8474, 0.8455, 0.8709, 0.8878, 0.899, 0.8987]
+    },
+    {
+     "id": "aci",
+     "n": 11296,
+     "coverage": 0.89802,
+     "gap": 0.00198,
+     "valid": true,
+     "meanWidth": 110.57656,
+     "intervalScore": 127.02956,
+     "rank": 5,
+     "tied": true,
+     "scoreRatio": 0.67207,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.87986, 0.91667],
+      "intervalScore": [122.40712, 131.8351]
+     },
+     "leadCoverage": [0.9015, 0.8971, 0.8996, 0.8979, 0.8962, 0.8973, 0.8999, 0.8967, 0.895, 0.8962, 0.893, 0.8941, 0.8996, 0.8978, 0.9033, 0.903]
+    },
+    {
+     "id": "agaci",
+     "n": 11296,
+     "coverage": 0.90988,
+     "gap": 0.00988,
+     "valid": true,
+     "meanWidth": 113.22173,
+     "intervalScore": 127.0397,
+     "rank": 5,
+     "tied": true,
+     "scoreRatio": 0.67213,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.89213, 0.92647],
+      "intervalScore": [122.70178, 131.31492]
+     },
+     "leadCoverage": [0.9043, 0.9068, 0.9079, 0.9119, 0.9102, 0.91, 0.9055, 0.9081, 0.9078, 0.9132, 0.9087, 0.9041, 0.901, 0.9079, 0.9221, 0.9291]
+    },
+    {
+     "id": "dtaci",
+     "n": 11296,
+     "coverage": 0.88916,
+     "gap": 0.01084,
+     "valid": true,
+     "meanWidth": 109.136,
+     "intervalScore": 128.1895,
+     "rank": 5,
+     "tied": true,
+     "scoreRatio": 0.67821,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.87027, 0.90598],
+      "intervalScore": [122.43192, 135.19823]
+     },
+     "leadCoverage": [0.8974, 0.8971, 0.8996, 0.8965, 0.8864, 0.8833, 0.8928, 0.8854, 0.8894, 0.8876, 0.8787, 0.8727, 0.8838, 0.8791, 0.8961, 0.9001]
+    },
+    {
+     "id": "pid",
+     "n": 11296,
+     "coverage": 0.89545,
+     "gap": 0.00455,
+     "valid": true,
+     "meanWidth": 110.53005,
+     "intervalScore": 128.46766,
+     "rank": 11,
+     "tied": false,
+     "scoreRatio": 0.67968,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.87507, 0.91355],
+      "intervalScore": [123.00651, 134.43595]
+     },
+     "leadCoverage": [0.9043, 0.9054, 0.894, 0.8951, 0.899, 0.9001, 0.9027, 0.901, 0.895, 0.8962, 0.8845, 0.8856, 0.8895, 0.8921, 0.8947, 0.8871]
+    },
+    {
+     "id": "bocpd_aci",
+     "n": 11296,
+     "coverage": 0.89598,
+     "gap": 0.00402,
+     "valid": true,
+     "meanWidth": 111.95781,
+     "intervalScore": 128.57764,
+     "rank": 11,
+     "tied": true,
+     "scoreRatio": 0.68026,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.87627, 0.91277],
+      "intervalScore": [123.26973, 134.27573]
+     },
+     "leadCoverage": [0.8988, 0.8957, 0.8968, 0.9021, 0.8962, 0.8973, 0.8984, 0.8967, 0.8936, 0.8905, 0.8859, 0.8856, 0.8924, 0.8964, 0.9048, 0.9045]
+    },
+    {
+     "id": "eci",
+     "n": 11296,
+     "coverage": 0.83366,
+     "gap": 0.06634,
+     "valid": false,
+     "meanWidth": 101.55922,
+     "intervalScore": 132.49037,
+     "rank": 13,
+     "tied": false,
+     "scoreRatio": 0.70097,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.81477, 0.85308],
+      "intervalScore": [126.1326, 139.3902]
+     },
+     "leadCoverage": [0.8433, 0.8401, 0.834, 0.835, 0.8373, 0.8354, 0.8336, 0.8317, 0.8326, 0.8307, 0.8288, 0.8269, 0.8278, 0.8317, 0.8355, 0.8336]
+    },
+    {
+     "id": "saocp",
+     "n": 11296,
+     "coverage": 0.82454,
+     "gap": 0.07546,
+     "valid": false,
+     "meanWidth": 104.4699,
+     "intervalScore": 147.45258,
+     "rank": 14,
+     "tied": false,
+     "scoreRatio": 0.78013,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.80999, 0.84149],
+      "intervalScore": [139.36985, 157.09667]
+     },
+     "leadCoverage": [0.8752, 0.8206, 0.802, 0.835, 0.8878, 0.9072, 0.8378, 0.8119, 0.7929, 0.8236, 0.7989, 0.7897, 0.7747, 0.7914, 0.7937, 0.8466]
+    },
+    {
+     "id": "sfogd",
+     "n": 11296,
+     "coverage": 0.89518,
+     "gap": 0.00482,
+     "valid": true,
+     "meanWidth": 124.12933,
+     "intervalScore": 156.59028,
+     "rank": 15,
+     "tied": false,
+     "scoreRatio": 0.82847,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.87377, 0.91162],
+      "intervalScore": [144.61758, 174.72944]
+     },
+     "leadCoverage": [0.8974, 0.8985, 0.901, 0.9007, 0.9018, 0.903, 0.9055, 0.8883, 0.8837, 0.8862, 0.8787, 0.8856, 0.8838, 0.895, 0.912, 0.9016]
+    },
+    {
+     "id": "native",
+     "n": 11296,
+     "coverage": 0.58012,
+     "gap": 0.31988,
+     "valid": false,
+     "meanWidth": 68.29907,
+     "intervalScore": 189.01117,
+     "rank": 16,
+     "tied": false,
+     "scoreRatio": 1,
+     "vsNative": 0,
+     "ci": {
+      "coverage": [0.56527, 0.59648],
+      "intervalScore": [179.04071, 199.95006]
+     },
+     "leadCoverage": [0.7406, 0.6843, 0.6304, 0.6, 0.6017, 0.5809, 0.5896, 0.5983, 0.6511, 0.6501, 0.5735, 0.5093, 0.462, 0.4619, 0.4545, 0.479]
+    }
+   ]
+  },
+  {
+   "id": "sunspots",
+   "label": "Sunspots, yearly",
+   "group": "Real data",
+   "source": "Yearly sunspot number, 1700 to 2008 (309 points, year; Wolf number)",
+   "points": 309,
+   "pairs": 4528,
+   "seconds": 0.7,
+   "rows": [
+    {
+     "id": "agaci",
+     "n": 4528,
+     "coverage": 0.89929,
+     "gap": 0.00071,
+     "valid": true,
+     "meanWidth": 101.49428,
+     "intervalScore": 121.84231,
+     "rank": 1,
+     "tied": false,
+     "scoreRatio": 0.71827,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.85415, 0.93387],
+      "intervalScore": [110.85381, 138.86249]
+     },
+     "leadCoverage": [0.8993, 0.902, 0.9082, 0.9075, 0.8966, 0.9097, 0.9056, 0.9155, 0.9149, 0.9071, 0.8993, 0.8949, 0.8869, 0.875, 0.8778, 0.8843]
+    },
+    {
+     "id": "nig",
+     "n": 4528,
+     "coverage": 0.84717,
+     "gap": 0.05283,
+     "valid": false,
+     "meanWidth": 90.2857,
+     "intervalScore": 123.13963,
+     "rank": 1,
+     "tied": true,
+     "scoreRatio": 0.72592,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.79633, 0.89369],
+      "intervalScore": [108.26196, 145.60776]
+     },
+     "leadCoverage": [0.8691, 0.8581, 0.8571, 0.8527, 0.869, 0.8715, 0.8811, 0.8908, 0.8794, 0.8571, 0.8165, 0.7862, 0.8029, 0.8125, 0.8111, 0.8284]
+    },
+    {
+     "id": "nexcp",
+     "n": 4528,
+     "coverage": 0.87301,
+     "gap": 0.02699,
+     "valid": false,
+     "meanWidth": 95.01991,
+     "intervalScore": 123.4021,
+     "rank": 1,
+     "tied": true,
+     "scoreRatio": 0.72746,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.82056, 0.91604],
+      "intervalScore": [109.52041, 144.85912]
+     },
+     "leadCoverage": [0.896, 0.8885, 0.8741, 0.8801, 0.8897, 0.8854, 0.8881, 0.8979, 0.9043, 0.8964, 0.8597, 0.8333, 0.8431, 0.8346, 0.8481, 0.8396]
+    },
+    {
+     "id": "bocpd",
+     "n": 4528,
+     "coverage": 0.85822,
+     "gap": 0.04178,
+     "valid": false,
+     "meanWidth": 93.25245,
+     "intervalScore": 123.43299,
+     "rank": 1,
+     "tied": true,
+     "scoreRatio": 0.72765,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.81859, 0.89643],
+      "intervalScore": [110.84292, 139.81927]
+     },
+     "leadCoverage": [0.8993, 0.8615, 0.8776, 0.863, 0.8759, 0.8819, 0.9021, 0.8803, 0.8759, 0.8357, 0.8381, 0.8116, 0.8102, 0.8382, 0.8259, 0.8433]
+    },
+    {
+     "id": "qt",
+     "n": 4528,
+     "coverage": 0.85336,
+     "gap": 0.04664,
+     "valid": false,
+     "meanWidth": 92.10976,
+     "intervalScore": 123.52716,
+     "rank": 1,
+     "tied": true,
+     "scoreRatio": 0.7282,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.80857, 0.89851],
+      "intervalScore": [110.22956, 144.58674]
+     },
+     "leadCoverage": [0.8658, 0.8514, 0.8537, 0.863, 0.8793, 0.8611, 0.8566, 0.8697, 0.8723, 0.8714, 0.8417, 0.8442, 0.8358, 0.8309, 0.8222, 0.8284]
+    },
+    {
+     "id": "split",
+     "n": 4528,
+     "coverage": 0.86285,
+     "gap": 0.03715,
+     "valid": false,
+     "meanWidth": 93.07054,
+     "intervalScore": 123.66608,
+     "rank": 1,
+     "tied": true,
+     "scoreRatio": 0.72902,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.80652, 0.90661],
+      "intervalScore": [109.27716, 145.84332]
+     },
+     "leadCoverage": [0.8826, 0.8851, 0.8639, 0.8699, 0.869, 0.875, 0.8811, 0.8873, 0.9043, 0.8893, 0.8237, 0.8152, 0.8285, 0.8309, 0.8481, 0.8433]
+    },
+    {
+     "id": "pid",
+     "n": 4528,
+     "coverage": 0.86771,
+     "gap": 0.03229,
+     "valid": false,
+     "meanWidth": 96.24171,
+     "intervalScore": 124.05396,
+     "rank": 1,
+     "tied": true,
+     "scoreRatio": 0.73131,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.82343, 0.90761],
+      "intervalScore": [111.54824, 142.33978]
+     },
+     "leadCoverage": [0.8792, 0.8682, 0.8707, 0.8767, 0.8828, 0.875, 0.8741, 0.8803, 0.8759, 0.875, 0.8561, 0.8659, 0.8504, 0.8529, 0.8444, 0.8507]
+    },
+    {
+     "id": "aci",
+     "n": 4528,
+     "coverage": 0.8792,
+     "gap": 0.0208,
+     "valid": false,
+     "meanWidth": 98.18447,
+     "intervalScore": 124.45598,
+     "rank": 1,
+     "tied": true,
+     "scoreRatio": 0.73368,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.8275, 0.91918],
+      "intervalScore": [111.21741, 144.11149]
+     },
+     "leadCoverage": [0.8859, 0.8851, 0.8878, 0.8801, 0.8897, 0.8819, 0.8846, 0.8944, 0.8936, 0.8821, 0.8705, 0.8804, 0.865, 0.8603, 0.8593, 0.8619]
+    },
+    {
+     "id": "dtaci",
+     "n": 4528,
+     "coverage": 0.87257,
+     "gap": 0.02743,
+     "valid": false,
+     "meanWidth": 97.45975,
+     "intervalScore": 124.65341,
+     "rank": 9,
+     "tied": false,
+     "scoreRatio": 0.73484,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.83335, 0.90955],
+      "intervalScore": [112.58024, 142.14339]
+     },
+     "leadCoverage": [0.8859, 0.8919, 0.8878, 0.8767, 0.9069, 0.8889, 0.8846, 0.8803, 0.8652, 0.8429, 0.8453, 0.8732, 0.865, 0.8382, 0.8593, 0.8619]
+    },
+    {
+     "id": "belief",
+     "n": 4528,
+     "coverage": 0.91431,
+     "gap": 0.01431,
+     "valid": true,
+     "meanWidth": 106.32812,
+     "intervalScore": 124.90648,
+     "rank": 9,
+     "tied": true,
+     "scoreRatio": 0.73633,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.86606, 0.94842],
+      "intervalScore": [114.90863, 140.41102]
+     },
+     "leadCoverage": [0.9497, 0.9426, 0.932, 0.9144, 0.9207, 0.9306, 0.9406, 0.9507, 0.9433, 0.9357, 0.8849, 0.8804, 0.8577, 0.8897, 0.8704, 0.8731]
+    },
+    {
+     "id": "eci",
+     "n": 4528,
+     "coverage": 0.81935,
+     "gap": 0.08065,
+     "valid": false,
+     "meanWidth": 87.12999,
+     "intervalScore": 125.05023,
+     "rank": 9,
+     "tied": true,
+     "scoreRatio": 0.73718,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.77378, 0.86172],
+      "intervalScore": [111.3863, 141.84145]
+     },
+     "leadCoverage": [0.8289, 0.8209, 0.8163, 0.8185, 0.8276, 0.8299, 0.8252, 0.831, 0.8333, 0.8321, 0.8129, 0.8152, 0.8029, 0.8125, 0.8, 0.7985]
+    },
+    {
+     "id": "cpcp",
+     "n": 4528,
+     "coverage": 0.87853,
+     "gap": 0.02147,
+     "valid": false,
+     "meanWidth": 98.6999,
+     "intervalScore": 125.29373,
+     "rank": 9,
+     "tied": true,
+     "scoreRatio": 0.73862,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.83691, 0.916],
+      "intervalScore": [112.86743, 142.77216]
+     },
+     "leadCoverage": [0.9195, 0.8885, 0.898, 0.8801, 0.8793, 0.8785, 0.8986, 0.8979, 0.8865, 0.85, 0.8525, 0.8587, 0.8723, 0.8566, 0.863, 0.8694]
+    },
+    {
+     "id": "bocpd_aci",
+     "n": 4528,
+     "coverage": 0.88405,
+     "gap": 0.01595,
+     "valid": true,
+     "meanWidth": 101.34938,
+     "intervalScore": 125.91629,
+     "rank": 9,
+     "tied": true,
+     "scoreRatio": 0.74229,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.84545, 0.91949],
+      "intervalScore": [114.53905, 140.22823]
+     },
+     "leadCoverage": [0.896, 0.8919, 0.898, 0.887, 0.8897, 0.8854, 0.8951, 0.8979, 0.8865, 0.8714, 0.8885, 0.8804, 0.8832, 0.8676, 0.863, 0.8582]
+    },
+    {
+     "id": "saocp",
+     "n": 4528,
+     "coverage": 0.83944,
+     "gap": 0.06056,
+     "valid": false,
+     "meanWidth": 91.77169,
+     "intervalScore": 126.6279,
+     "rank": 9,
+     "tied": true,
+     "scoreRatio": 0.74648,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.80544, 0.86663],
+      "intervalScore": [114.22962, 140.47452]
+     },
+     "leadCoverage": [0.8725, 0.848, 0.8401, 0.8562, 0.869, 0.875, 0.8462, 0.8134, 0.8298, 0.8357, 0.8058, 0.8152, 0.7993, 0.8199, 0.8556, 0.8433]
+    },
+    {
+     "id": "sfogd",
+     "n": 4528,
+     "coverage": 0.88538,
+     "gap": 0.01462,
+     "valid": true,
+     "meanWidth": 112.42684,
+     "intervalScore": 146.41068,
+     "rank": 15,
+     "tied": false,
+     "scoreRatio": 0.8631,
+     "vsNative": 0,
+     "ci": {
+      "coverage": [0.85174, 0.91215],
+      "intervalScore": [135.29269, 159.49266]
+     },
+     "leadCoverage": [0.8926, 0.8919, 0.8946, 0.8973, 0.8931, 0.8924, 0.8916, 0.8768, 0.8617, 0.8536, 0.8561, 0.9022, 0.8942, 0.9044, 0.9037, 0.8582]
+    },
+    {
+     "id": "native",
+     "n": 4528,
+     "coverage": 0.62831,
+     "gap": 0.27169,
+     "valid": false,
+     "meanWidth": 60.3308,
+     "intervalScore": 169.63328,
+     "rank": 15,
+     "tied": true,
+     "scoreRatio": 1,
+     "vsNative": 0,
+     "ci": {
+      "coverage": [0.56001, 0.68581],
+      "intervalScore": [137.37559, 209.62363]
+     },
+     "leadCoverage": [0.7248, 0.6689, 0.6565, 0.6438, 0.6655, 0.6632, 0.6154, 0.6479, 0.7163, 0.6464, 0.5468, 0.5942, 0.5803, 0.5331, 0.5667, 0.5597]
+    }
+   ]
+  },
+  {
+   "id": "airline",
+   "label": "Airline passengers",
+   "group": "Real data",
+   "source": "International airline passengers (Box & Jenkins Series G), 1949-01 to 1960-12 (144 points, month; thousands)",
+   "points": 144,
+   "pairs": 1888,
+   "seconds": 0.2,
+   "rows": [
+    {
+     "id": "agaci",
+     "n": 1888,
+     "coverage": 0.81303,
+     "gap": 0.08697,
+     "valid": false,
+     "meanWidth": 39.48682,
+     "intervalScore": 53.15337,
+     "rank": 1,
+     "tied": false,
+     "scoreRatio": 0.47596,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.77149, 0.85839],
+      "intervalScore": [43.18109, 64.73409]
+     },
+     "leadCoverage": [0.8571, 0.855, 0.8372, 0.8425, 0.84, 0.8374, 0.8512, 0.8403, 0.8803, 0.8696, 0.8319, 0.7297, 0.7798, 0.7196, 0.6571, 0.7184]
+    },
+    {
+     "id": "bocpd_aci",
+     "n": 1888,
+     "coverage": 0.81833,
+     "gap": 0.08167,
+     "valid": false,
+     "meanWidth": 39.90354,
+     "intervalScore": 53.81852,
+     "rank": 1,
+     "tied": true,
+     "scoreRatio": 0.48191,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.76411, 0.86857],
+      "intervalScore": [43.76103, 65.21338]
+     },
+     "leadCoverage": [0.8496, 0.8626, 0.845, 0.8504, 0.856, 0.8374, 0.8264, 0.8235, 0.8376, 0.8435, 0.8142, 0.7928, 0.789, 0.757, 0.7619, 0.699]
+    },
+    {
+     "id": "aci",
+     "n": 1888,
+     "coverage": 0.8035,
+     "gap": 0.0965,
+     "valid": false,
+     "meanWidth": 39.40318,
+     "intervalScore": 54.07607,
+     "rank": 3,
+     "tied": false,
+     "scoreRatio": 0.48422,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.75086, 0.85655],
+      "intervalScore": [44.06942, 65.48091]
+     },
+     "leadCoverage": [0.8421, 0.8321, 0.8295, 0.8268, 0.824, 0.8374, 0.8264, 0.8319, 0.8291, 0.8261, 0.8053, 0.7748, 0.7615, 0.7383, 0.7238, 0.699]
+    },
+    {
+     "id": "pid",
+     "n": 1888,
+     "coverage": 0.79767,
+     "gap": 0.10233,
+     "valid": false,
+     "meanWidth": 38.07076,
+     "intervalScore": 54.72028,
+     "rank": 3,
+     "tied": true,
+     "scoreRatio": 0.48999,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.75167, 0.83475],
+      "intervalScore": [44.4855, 66.6066]
+     },
+     "leadCoverage": [0.8421, 0.8168, 0.8062, 0.8031, 0.8, 0.8049, 0.8347, 0.7983, 0.812, 0.8261, 0.823, 0.8108, 0.7798, 0.757, 0.7143, 0.699]
+    },
+    {
+     "id": "dtaci",
+     "n": 1888,
+     "coverage": 0.79714,
+     "gap": 0.10286,
+     "valid": false,
+     "meanWidth": 39.35595,
+     "intervalScore": 55.03433,
+     "rank": 5,
+     "tied": false,
+     "scoreRatio": 0.4928,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.74431, 0.84837],
+      "intervalScore": [45.0823, 66.46984]
+     },
+     "leadCoverage": [0.8496, 0.8397, 0.8605, 0.8346, 0.832, 0.8374, 0.8099, 0.8571, 0.8462, 0.8, 0.7699, 0.6847, 0.7431, 0.7196, 0.6952, 0.7087]
+    },
+    {
+     "id": "saocp",
+     "n": 1888,
+     "coverage": 0.79979,
+     "gap": 0.10021,
+     "valid": false,
+     "meanWidth": 38.53723,
+     "intervalScore": 55.77224,
+     "rank": 5,
+     "tied": true,
+     "scoreRatio": 0.49941,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.75904, 0.83448],
+      "intervalScore": [45.97511, 67.30944]
+     },
+     "leadCoverage": [0.8496, 0.855, 0.814, 0.8583, 0.832, 0.8455, 0.7686, 0.8235, 0.8291, 0.8696, 0.7965, 0.7658, 0.7156, 0.729, 0.6857, 0.699]
+    },
+    {
+     "id": "belief",
+     "n": 1888,
+     "coverage": 0.76748,
+     "gap": 0.13252,
+     "valid": false,
+     "meanWidth": 36.27347,
+     "intervalScore": 56.33329,
+     "rank": 5,
+     "tied": true,
+     "scoreRatio": 0.50443,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.73777, 0.8063],
+      "intervalScore": [45.09672, 69.13801]
+     },
+     "leadCoverage": [0.8722, 0.8244, 0.7984, 0.8268, 0.768, 0.8049, 0.8512, 0.7815, 0.812, 0.8609, 0.7965, 0.6757, 0.6881, 0.5981, 0.6095, 0.6214]
+    },
+    {
+     "id": "cpcp",
+     "n": 1888,
+     "coverage": 0.76218,
+     "gap": 0.13782,
+     "valid": false,
+     "meanWidth": 36.13898,
+     "intervalScore": 56.51939,
+     "rank": 5,
+     "tied": true,
+     "scoreRatio": 0.5061,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.72214, 0.8059],
+      "intervalScore": [45.17229, 69.90341]
+     },
+     "leadCoverage": [0.8346, 0.8015, 0.7984, 0.7717, 0.744, 0.7967, 0.7769, 0.8067, 0.7949, 0.8174, 0.7965, 0.7658, 0.6881, 0.6729, 0.6476, 0.6214]
+    },
+    {
+     "id": "bocpd",
+     "n": 1888,
+     "coverage": 0.7357,
+     "gap": 0.1643,
+     "valid": false,
+     "meanWidth": 34.41782,
+     "intervalScore": 58.49164,
+     "rank": 9,
+     "tied": false,
+     "scoreRatio": 0.52376,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.69207, 0.77422],
+      "intervalScore": [46.97088, 72.13624]
+     },
+     "leadCoverage": [0.8271, 0.7786, 0.7442, 0.7559, 0.728, 0.7886, 0.7851, 0.7479, 0.7607, 0.7913, 0.7522, 0.7027, 0.6697, 0.6449, 0.6286, 0.6019]
+    },
+    {
+     "id": "eci",
+     "n": 1888,
+     "coverage": 0.72617,
+     "gap": 0.17383,
+     "valid": false,
+     "meanWidth": 33.80798,
+     "intervalScore": 58.63523,
+     "rank": 9,
+     "tied": true,
+     "scoreRatio": 0.52504,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.69225, 0.76346],
+      "intervalScore": [47.28163, 72.66867]
+     },
+     "leadCoverage": [0.7895, 0.7481, 0.7054, 0.7165, 0.672, 0.7236, 0.7521, 0.7059, 0.7607, 0.7739, 0.7788, 0.7748, 0.7339, 0.6636, 0.6667, 0.6311]
+    },
+    {
+     "id": "qt",
+     "n": 1888,
+     "coverage": 0.70763,
+     "gap": 0.19237,
+     "valid": false,
+     "meanWidth": 33.26282,
+     "intervalScore": 59.65784,
+     "rank": 9,
+     "tied": true,
+     "scoreRatio": 0.5342,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.6766, 0.75109],
+      "intervalScore": [47.21933, 72.88601]
+     },
+     "leadCoverage": [0.8045, 0.7328, 0.6822, 0.7008, 0.64, 0.7154, 0.7273, 0.6807, 0.7607, 0.7826, 0.7788, 0.7568, 0.7248, 0.6168, 0.5905, 0.5922]
+    },
+    {
+     "id": "nexcp",
+     "n": 1888,
+     "coverage": 0.71981,
+     "gap": 0.18019,
+     "valid": false,
+     "meanWidth": 33.10561,
+     "intervalScore": 60.68343,
+     "rank": 9,
+     "tied": true,
+     "scoreRatio": 0.54338,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.68195, 0.77497],
+      "intervalScore": [47.57802, 75.38724]
+     },
+     "leadCoverage": [0.8346, 0.7786, 0.7829, 0.7323, 0.696, 0.7642, 0.7438, 0.7731, 0.7778, 0.7913, 0.7345, 0.6396, 0.6055, 0.5981, 0.5905, 0.5922]
+    },
+    {
+     "id": "nig",
+     "n": 1888,
+     "coverage": 0.6875,
+     "gap": 0.2125,
+     "valid": false,
+     "meanWidth": 31.84227,
+     "intervalScore": 62.96281,
+     "rank": 13,
+     "tied": false,
+     "scoreRatio": 0.56379,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.64823, 0.74109],
+      "intervalScore": [49.84448, 77.32753]
+     },
+     "leadCoverage": [0.8195, 0.7634, 0.7442, 0.7087, 0.672, 0.7236, 0.7355, 0.7059, 0.7521, 0.7478, 0.6903, 0.6306, 0.5688, 0.5607, 0.5524, 0.534]
+    },
+    {
+     "id": "split",
+     "n": 1888,
+     "coverage": 0.69174,
+     "gap": 0.20826,
+     "valid": false,
+     "meanWidth": 31.34248,
+     "intervalScore": 64.37815,
+     "rank": 13,
+     "tied": true,
+     "scoreRatio": 0.57647,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.6527, 0.75661],
+      "intervalScore": [50.13307, 80.22878]
+     },
+     "leadCoverage": [0.8346, 0.7405, 0.7597, 0.7087, 0.672, 0.7236, 0.7273, 0.7395, 0.7692, 0.7565, 0.708, 0.6126, 0.5872, 0.5421, 0.5429, 0.5534]
+    },
+    {
+     "id": "sfogd",
+     "n": 1888,
+     "coverage": 0.81091,
+     "gap": 0.08909,
+     "valid": false,
+     "meanWidth": 41.20593,
+     "intervalScore": 68.38009,
+     "rank": 13,
+     "tied": true,
+     "scoreRatio": 0.6123,
+     "vsNative": -1,
+     "ci": {
+      "coverage": [0.74193, 0.87197],
+      "intervalScore": [54.32278, 83.52859]
+     },
+     "leadCoverage": [0.8797, 0.8779, 0.8682, 0.874, 0.864, 0.8618, 0.8595, 0.8487, 0.8547, 0.7913, 0.7965, 0.8018, 0.7431, 0.729, 0.6381, 0.5922]
+    },
+    {
+     "id": "native",
+     "n": 1888,
+     "coverage": 0.44915,
+     "gap": 0.45085,
+     "valid": false,
+     "meanWidth": 17.97293,
+     "intervalScore": 111.67713,
+     "rank": 16,
+     "tied": false,
+     "scoreRatio": 1,
+     "vsNative": 0,
+     "ci": {
+      "coverage": [0.39555, 0.5365],
+      "intervalScore": [80.57619, 144.30591]
+     },
+     "leadCoverage": [0.5789, 0.4733, 0.4961, 0.4803, 0.344, 0.439, 0.4215, 0.5882, 0.5812, 0.5652, 0.4248, 0.3514, 0.3761, 0.3364, 0.3524, 0.3107]
+    }
+   ]
+  },
+  {
+   "id": "nile",
+   "label": "Nile flow (changepoint)",
+   "group": "Real data",
+   "source": "Nile river annual flow at Aswan, 1871 to 1970 (100 points, year; 10^8 m^3)",
+   "points": 100,
+   "pairs": 1184,
+   "seconds": 0.1,
+   "rows": [
+    {
+     "id": "native",
+     "n": 1184,
+     "coverage": 0.84966,
+     "gap": 0.05034,
+     "valid": false,
+     "meanWidth": 71.3951,
+     "intervalScore": 102.70594,
+     "rank": 1,
+     "tied": false,
+     "scoreRatio": 1,
+     "vsNative": 0,
+     "ci": {
+      "coverage": [0.80892, 0.89044],
+      "intervalScore": [82.29896, 129.28059]
+     },
+     "leadCoverage": [0.8989, 0.9195, 0.9059, 0.8434, 0.8519, 0.8861, 0.8442, 0.8667, 0.8082, 0.831, 0.8406, 0.806, 0.8, 0.7778, 0.8525, 0.7966]
+    },
+    {
+     "id": "belief",
+     "n": 1184,
+     "coverage": 0.93074,
+     "gap": 0.03074,
+     "valid": true,
+     "meanWidth": 94.42172,
+     "intervalScore": 109.84492,
+     "rank": 1,
+     "tied": true,
+     "scoreRatio": 1.06951,
+     "vsNative": 0,
+     "ci": {
+      "coverage": [0.89171, 0.9689],
+      "intervalScore": [92.88058, 130.41152]
+     },
+     "leadCoverage": [1, 0.977, 0.9529, 0.8916, 0.9753, 0.9873, 0.9091, 0.9733, 0.8904, 0.9437, 0.913, 0.9254, 0.8154, 0.873, 0.8361, 0.9661]
+    },
+    {
+     "id": "qt",
+     "n": 1184,
+     "coverage": 0.89189,
+     "gap": 0.00811,
+     "valid": true,
+     "meanWidth": 87.72498,
+     "intervalScore": 111.82736,
+     "rank": 3,
+     "tied": false,
+     "scoreRatio": 1.08881,
+     "vsNative": 1,
+     "ci": {
+      "coverage": [0.82716, 0.95027],
+      "intervalScore": [92.35176, 133.77147]
+     },
+     "leadCoverage": [0.9213, 0.954, 0.9176, 0.8554, 0.8642, 0.9494, 0.8961, 0.9467, 0.8904, 0.9014, 0.8986, 0.8657, 0.8615, 0.8571, 0.8689, 0.7627]
+    },
+    {
+     "id": "split",
+     "n": 1184,
+     "coverage": 0.89358,
+     "gap": 0.00642,
+     "valid": true,
+     "meanWidth": 86.80352,
+     "intervalScore": 112.89889,
+     "rank": 3,
+     "tied": true,
+     "scoreRatio": 1.09924,
+     "vsNative": 1,
+     "ci": {
+      "coverage": [0.85395, 0.93841],
+      "intervalScore": [89.71069, 139.20464]
+     },
+     "leadCoverage": [0.9888, 0.954, 0.9176, 0.8916, 0.8889, 0.9367, 0.8701, 0.92, 0.9178, 0.9296, 0.8986, 0.8358, 0.8462, 0.8254, 0.8197, 0.7627]
+    },
+    {
+     "id": "nexcp",
+     "n": 1184,
+     "coverage": 0.8978,
+     "gap": 0.0022,
+     "valid": true,
+     "meanWidth": 88.25547,
+     "intervalScore": 114.64594,
+     "rank": 3,
+     "tied": true,
+     "scoreRatio": 1.11625,
+     "vsNative": 1,
+     "ci": {
+      "coverage": [0.85515, 0.94254],
+      "intervalScore": [91.29453, 141.53297]
+     },
+     "leadCoverage": [0.9888, 0.9655, 0.9176, 0.9036, 0.9136, 0.9367, 0.8701, 0.9333, 0.9178, 0.9155, 0.8841, 0.8358, 0.8462, 0.8413, 0.8197, 0.7797]
+    },
+    {
+     "id": "eci",
+     "n": 1184,
+     "coverage": 0.84459,
+     "gap": 0.05541,
+     "valid": false,
+     "meanWidth": 81.87598,
+     "intervalScore": 124.59301,
+     "rank": 6,
+     "tied": false,
+     "scoreRatio": 1.2131,
+     "vsNative": 1,
+     "ci": {
+      "coverage": [0.77213, 0.91233],
+      "intervalScore": [100.50337, 152.17853]
+     },
+     "leadCoverage": [0.8652, 0.8851, 0.8706, 0.8193, 0.8395, 0.8987, 0.8312, 0.8933, 0.8356, 0.831, 0.8116, 0.8358, 0.8462, 0.8254, 0.8361, 0.7458]
+    },
+    {
+     "id": "aci",
+     "n": 1184,
+     "coverage": 0.87331,
+     "gap": 0.02669,
+     "valid": false,
+     "meanWidth": 90.60714,
+     "intervalScore": 130.06426,
+     "rank": 6,
+     "tied": true,
+     "scoreRatio": 1.26638,
+     "vsNative": 1,
+     "ci": {
+      "coverage": [0.79892, 0.94451],
+      "intervalScore": [102.92033, 158.98192]
+     },
+     "leadCoverage": [0.9663, 0.908, 0.9176, 0.9036, 0.8889, 0.9367, 0.8701, 0.92, 0.8904, 0.8732, 0.8406, 0.8209, 0.8154, 0.8254, 0.7705, 0.7119]
+    },
+    {
+     "id": "agaci",
+     "n": 1184,
+     "coverage": 0.89527,
+     "gap": 0.00473,
+     "valid": true,
+     "meanWidth": 97.66831,
+     "intervalScore": 132.80393,
+     "rank": 8,
+     "tied": false,
+     "scoreRatio": 1.29305,
+     "vsNative": 1,
+     "ci": {
+      "coverage": [0.82855, 0.95631],
+      "intervalScore": [105.19866, 163.25016]
+     },
+     "leadCoverage": [0.9663, 0.931, 0.9176, 0.9036, 0.9136, 0.9367, 0.8961, 0.9467, 0.9178, 0.9296, 0.8696, 0.8358, 0.8462, 0.8889, 0.8197, 0.7119]
+    },
+    {
+     "id": "nig",
+     "n": 1184,
+     "coverage": 0.82264,
+     "gap": 0.07736,
+     "valid": false,
+     "meanWidth": 72.88723,
+     "intervalScore": 137.48165,
+     "rank": 8,
+     "tied": true,
+     "scoreRatio": 1.33859,
+     "vsNative": 1,
+     "ci": {
+      "coverage": [0.72234, 0.91918],
+      "intervalScore": [92.88018, 186.09124]
+     },
+     "leadCoverage": [0.9213, 0.908, 0.9176, 0.8313, 0.8642, 0.9114, 0.8571, 0.88, 0.863, 0.831, 0.7391, 0.7612, 0.7231, 0.6667, 0.6721, 0.6441]
+    },
+    {
+     "id": "bocpd",
+     "n": 1184,
+     "coverage": 0.83784,
+     "gap": 0.06216,
+     "valid": false,
+     "meanWidth": 75.40898,
+     "intervalScore": 162.72764,
+     "rank": 8,
+     "tied": true,
+     "scoreRatio": 1.5844,
+     "vsNative": 1,
+     "ci": {
+      "coverage": [0.73893, 0.93476],
+      "intervalScore": [95.23966, 238.48814]
+     },
+     "leadCoverage": [0.9213, 0.908, 0.9059, 0.8916, 0.8765, 0.8987, 0.8312, 0.8667, 0.8767, 0.8028, 0.7826, 0.806, 0.7385, 0.7302, 0.7213, 0.7119]
+    },
+    {
+     "id": "saocp",
+     "n": 1184,
+     "coverage": 0.80236,
+     "gap": 0.09764,
+     "valid": false,
+     "meanWidth": 80.47279,
+     "intervalScore": 169.39571,
+     "rank": 11,
+     "tied": false,
+     "scoreRatio": 1.64933,
+     "vsNative": 1,
+     "ci": {
+      "coverage": [0.72422, 0.87429],
+      "intervalScore": [112.00632, 230.79012]
+     },
+     "leadCoverage": [0.8539, 0.8966, 0.8588, 0.7711, 0.8272, 0.8861, 0.7532, 0.7867, 0.8082, 0.8451, 0.8261, 0.791, 0.7692, 0.6984, 0.6557, 0.7119]
+    },
+    {
+     "id": "dtaci",
+     "n": 1184,
+     "coverage": 0.82348,
+     "gap": 0.07652,
+     "valid": false,
+     "meanWidth": 75.48643,
+     "intervalScore": 171.03471,
+     "rank": 11,
+     "tied": true,
+     "scoreRatio": 1.66529,
+     "vsNative": 1,
+     "ci": {
+      "coverage": [0.72625, 0.91953],
+      "intervalScore": [96.3371, 255.11914]
+     },
+     "leadCoverage": [0.9213, 0.8851, 0.9059, 0.8675, 0.8642, 0.9114, 0.8571, 0.8933, 0.8767, 0.7606, 0.7391, 0.791, 0.7231, 0.6984, 0.6885, 0.6271]
+    },
+    {
+     "id": "cpcp",
+     "n": 1184,
+     "coverage": 0.84375,
+     "gap": 0.05625,
+     "valid": false,
+     "meanWidth": 93.05608,
+     "intervalScore": 176.70348,
+     "rank": 11,
+     "tied": true,
+     "scoreRatio": 1.72048,
+     "vsNative": 1,
+     "ci": {
+      "coverage": [0.74846, 0.93712],
+      "intervalScore": [111.40334, 247.19704]
+     },
+     "leadCoverage": [0.9775, 0.954, 0.9059, 0.8675, 0.8889, 0.8987, 0.8442, 0.8667, 0.8767, 0.8028, 0.7681, 0.8209, 0.7385, 0.7143, 0.7213, 0.6949]
+    },
+    {
+     "id": "bocpd_aci",
+     "n": 1184,
+     "coverage": 0.84037,
+     "gap": 0.05963,
+     "valid": false,
+     "meanWidth": 91.64449,
+     "intervalScore": 187.47964,
+     "rank": 11,
+     "tied": true,
+     "scoreRatio": 1.8254,
+     "vsNative": 1,
+     "ci": {
+      "coverage": [0.73529, 0.93866],
+      "intervalScore": [120.67434, 264.32939]
+     },
+     "leadCoverage": [0.9101, 0.8966, 0.8941, 0.8916, 0.8889, 0.8861, 0.8312, 0.8667, 0.8767, 0.831, 0.7826, 0.8209, 0.7846, 0.746, 0.7377, 0.678]
+    },
+    {
+     "id": "pid",
+     "n": 1184,
+     "coverage": 0.8522,
+     "gap": 0.0478,
+     "valid": false,
+     "meanWidth": 119.85741,
+     "intervalScore": 199.75108,
+     "rank": 15,
+     "tied": false,
+     "scoreRatio": 1.94488,
+     "vsNative": 1,
+     "ci": {
+      "coverage": [0.7525, 0.94337],
+      "intervalScore": [154.21372, 250.58065]
+     },
+     "leadCoverage": [0.9213, 0.931, 0.9059, 0.8795, 0.8765, 0.9114, 0.8831, 0.92, 0.8767, 0.8451, 0.7971, 0.791, 0.7692, 0.7619, 0.7377, 0.6949]
+    },
+    {
+     "id": "sfogd",
+     "n": 1184,
+     "coverage": 0.75676,
+     "gap": 0.14324,
+     "valid": false,
+     "meanWidth": 135.5793,
+     "intervalScore": 596.59449,
+     "rank": 16,
+     "tied": false,
+     "scoreRatio": 5.80876,
+     "vsNative": 1,
+     "ci": {
+      "coverage": [0.63397, 0.8582],
+      "intervalScore": [309.18887, 880.94153]
+     },
+     "leadCoverage": [0.9101, 0.8851, 0.8706, 0.8554, 0.8519, 0.8481, 0.7922, 0.8267, 0.7671, 0.7183, 0.6957, 0.6567, 0.6154, 0.5556, 0.5246, 0.4746]
+    }
+   ]
+  }
+ ]
+}

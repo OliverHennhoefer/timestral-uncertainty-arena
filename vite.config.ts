@@ -4,6 +4,10 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   base: "./",
   worker: { format: "es" },
-  build: { target: "es2022" },
+  build: {
+    target: "es2022",
+    // Two pages: the arena and the static leaderboard.
+    rollupOptions: { input: { main: "index.html", leaderboard: "leaderboard.html" } },
+  },
   test: { environment: "node" },
 });

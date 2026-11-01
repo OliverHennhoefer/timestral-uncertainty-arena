@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Leaderboard of online conformal and Bayesian calibration methods for Timestral forecasts, across every bundled synthetic and real dataset." />
+    <title>Leaderboard · Timestral Uncertainty Arena</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M2 22 Q8 6 14 16 T30 8' fill='none' stroke='%23007AFF' stroke-width='3'/%3E%3C/svg%3E" />
+  </head>
+  <body class="lb">
+    <header class="topbar lb-top">
+      <div class="brand"><h1>Leaderboard</h1></div>
+      <a class="back" href="./index.html">← Arena</a>
+      <div class="lb-tools">
+        <label class="inline-field">Model <select id="run"></select></label>
+        <button id="btn-csv" class="primary" title="All datasets × methods of this run, one line each">Download CSV</button>
+      </div>
+    </header>
+
+    <main class="content lb-content">
+      <p class="lb-meta muted" id="meta"></p>
+
+      <section class="card" id="findings-card">
+        <h3>Findings</h3>
+        <ul class="findings" id="findings"></ul>
+        <details class="caveats">
+          <summary>Caveats</summary>
+          <ul id="caveats"></ul>
+        </details>
+      </section>
+
+      <section class="card">
+        <div class="row-between">
+          <h3>Overall <span class="muted" id="overall-sub"></span></h3>
+          <div class="seg" id="group" role="group" aria-label="Datasets to include"></div>
+        </div>
+        <div class="rank-wrap"><table class="lbt" id="overall"></table></div>
+        <p class="footnote-sm">
+          Each method is ranked by mean interval (Winkler) score on each dataset; rows that a paired block bootstrap cannot tell apart share a rank.
+          <b>Score vs native</b> is the geometric mean of the score ratio (below 1 is better). <b>Better / worse</b> counts datasets where the difference from native is significant at 95%. Click a header to sort.
+        </p>
+      </section>
+
+      <section class="card">
+        <div class="row-between">
+          <h3>Rank on each dataset <span class="muted">click a dataset for its table</span></h3>
+        </div>
+        <div class="rank-wrap"><table class="lbt matrix" id="matrix"></table></div>
+        <p class="footnote-sm matrix-key">
+          <span><span class="swatch" id="swatch"></span>stronger blue = better rank on that dataset</span>
+          <span><b>=</b> shares its rank: not distinguishable from the best row of its group</span>
+          <span><span class="reddot"></span><span id="under-note">coverage below target</span></span>
+          <span>Hover a cell for coverage and score.</span>
+        </p>
+      </section>
+
+      <section class="card" id="detail-card">
+        <div class="row-between">
+          <h3 id="detail-title">Dataset</h3>
+          <select id="dataset" aria-label="Dataset"></select>
+        </div>
+        <p class="muted small" id="detail-meta"></p>
+        <div class="rank-wrap"><table class="lbt" id="detail"></table></div>
+      </section>
+
+      <p class="footnote-sm" id="howto">
+        Results are produced offline by <code>npm run benchmark</code> and committed as JSON under <code>benchmarks/results/</code>; see <code>benchmarks/README.md</code>.
+        Every dataset in the app and every method in the settings panel is included automatically.
+      </p>
+    </main>
+    <div class="lb-tip hidden" id="tip" role="tooltip"></div>
+    <script type="module" src="/src/leaderboard/main.ts"></script>
+  </body>
+</html>
