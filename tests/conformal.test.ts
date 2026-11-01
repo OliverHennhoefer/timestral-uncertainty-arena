@@ -207,6 +207,27 @@ describe("engine", () => {
     expect(ranked.some((x) => x.tied)).toBe(true);
   });
 
+  it("asymmetric CQR calibrates each side and beats one shared threshold on skewed errors", () => {
+    // The model claims N(0, 1); the truth is exponential (always positive, right-skewed).
+    const r = rng(21);
+    const H = 2;
+    const q = new Float32Array(H * TIMESTRAL_LEVELS.length);
+    for (let k = 0; k < H; k++) TIMESTRAL_LEVELS.forEach((p, i) => (q[k * TIMESTRAL_LEVELS.length + i] = normInv(p)));
+    const runWith = (scoreType: "cqr" | "cqr_asym") => {
+      const e = new Engine({ ...defaultSettings(), evalLeads: H, scoreType, window: 200 });
+      for (let t = 0; t < 3000; t++) {
+        e.append(-Math.log(r()));
+        e.addForecast(t, q, H, TIMESTRAL_LEVELS);
+      }
+      e.catchUp();
+      return e.table().find((x) => x.id === "split")!;
+    };
+    const sym = runWith("cqr"), asym = runWith("cqr_asym");
+    expect(Math.abs(asym.coverage - 0.9)).toBeLessThan(0.03);
+    expect(asym.meanWidth).toBeLessThan(sym.meanWidth);
+    expect(asym.intervalScore).toBeLessThan(sym.intervalScore);
+  });
+
   it("interpolates quantiles between knots", () => {
     const q = Float32Array.from(TIMESTRAL_LEVELS);
     expect(quantileAt(q, 0, TIMESTRAL_LEVELS, 0.025)).toBeCloseTo(0.025, 6);
