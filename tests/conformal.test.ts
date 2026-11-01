@@ -240,6 +240,26 @@ describe("engine", () => {
     expect(med(16) - 198).toBeLessThan(2 * 0.9 / 0.1 + 1e-6);
   });
 
+  it("pastBand returns the interval issued k steps ahead, aligned to its target time", async () => {
+    const r = rng(17);
+    const y = Array.from({ length: 120 }, () => normInv(r()));
+    const e = new Engine({ ...defaultSettings(), evalLeads: 4 });
+    await run(e, y, 4);
+    for (const id of e.rowIds) {
+      const band = e.pastBand(id, 3, 50, 80);
+      expect(band.length).toBe(31);
+      for (const [t, lo, hi, missed] of band) {
+        const iv = e.interval(e.forecasts.get(t - 3)!, 2, id)!;
+        expect([lo, hi]).toEqual(iv);
+        expect(missed).toBe(y[t] < lo || y[t] > hi);
+      }
+    }
+    // The misses at lead k agree with the per-lead coverage.
+    const all = e.pastBand(NATIVE_ID, 2, 0, 119).filter((b) => e.forecasts.get(b[0] - 2)!.evaluated[1]);
+    const cov = e.table(2).find((x) => x.id === NATIVE_ID)!.coverage;
+    expect(1 - all.filter((b) => b[3]).length / all.length).toBeCloseTo(cov, 10);
+  });
+
   it("interpolates quantiles between knots", () => {
     const q = Float32Array.from(TIMESTRAL_LEVELS);
     expect(quantileAt(q, 0, TIMESTRAL_LEVELS, 0.025)).toBeCloseTo(0.025, 6);

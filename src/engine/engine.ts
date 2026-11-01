@@ -327,6 +327,25 @@ export class Engine {
     }
   }
 
+  /**
+   * The band a method issued `k` steps ahead, for every target time in [from, to] that had
+   * a forecast made at `t - k`: entries `[t, lo, hi, missed]`. `missed` is only set for pairs
+   * that counted toward the metrics (past warm-up) and whose truth is known.
+   */
+  pastBand(id: string, k: number, from: number, to: number): [number, number, number, boolean][] {
+    const out: [number, number, number, boolean][] = [];
+    for (let t = Math.max(k, from); t <= to; t++) {
+      const f = this.forecasts.get(t - k);
+      if (!f || k > f.horizon) continue;
+      const iv = this.interval(f, k - 1, id);
+      if (!iv) continue;
+      const y = this.series[t];
+      const missed = y !== undefined && t <= this.processedUpTo && !!f.evaluated[k - 1] && (y < iv[0] || y > iv[1]);
+      out.push([t, iv[0], iv[1], missed]);
+    }
+    return out;
+  }
+
   /** Upper-side score of an asymmetric score: how far `y` rose above the upper bound. */
   scoreUp(f: StoredForecast, j: number, y: number): number {
     return y - f.hi[j];

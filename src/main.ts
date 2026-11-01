@@ -30,6 +30,8 @@ let rankLead = 0;
 let uncCache: { key: string; at: number; len: number; value: Map<string, Uncertainty> } | null = null;
 let uncTimer = 0;
 let focusId = "aci";
+/** Lead whose past bands are drawn behind the series (0 = none). */
+let histLead = 1;
 const MISS_COLOR = "#FF3B30";
 let showAll = true;
 /** Off: a stroke only moves forward in time; drawing left of the end does nothing. */
@@ -319,20 +321,42 @@ function renderMain() {
   const first = Math.max(0, Math.floor(view.start - seriesOffset) - 1);
   const last = Math.min(n - 1, Math.ceil(view.start + w / view.pxPerStep - seriesOffset) + 1);
 
-  // Historical lead-1 intervals of the focus method, with misses marked.
+  // Past bands: the interval each method issued `histLead` steps ahead, drawn at the time it
+  // was about. The focus method is filled with its misses marked; others are outlines.
   const fid = engine.settings.enabled[focusId] || focusId === NATIVE_ID ? focusId : NATIVE_ID;
-  const fcol = COLORS[fid];
-  ctx.fillStyle = withAlpha(fcol, 0.14);
   const misses: [number, number][] = [];
-  for (let o = first - 1; o <= last; o++) {
-    const f = engine.forecasts.get(o);
-    if (!f) continue;
-    const iv = engine.interval(f, 0, fid);
-    if (!iv) continue;
-    const x = S(o + 1);
-    ctx.fillRect(x - view.pxPerStep / 2, Y(iv[1]), view.pxPerStep, Math.max(1, Y(iv[0]) - Y(iv[1])));
-    const y = engine.series[o + 1];
-    if (y !== undefined && f.evaluated[0] && (y < iv[0] || y > iv[1])) misses.push([x, Y(y)]);
+  const k = Math.min(histLead, engine.settings.evalLeads);
+  if (k > 0) {
+    const from = first, to = last;
+    const others = showAll ? engine.rowIds.filter((id) => id !== fid) : [];
+    for (const id of others) {
+      const band = engine.pastBand(id, k, from, to);
+      ctx.strokeStyle = withAlpha(COLORS[id], 0.45);
+      ctx.lineWidth = 0.9;
+      if (id === NATIVE_ID) ctx.setLineDash([3, 3]);
+      for (const side of [1, 2] as const) {
+        ctx.beginPath();
+        let prev = -Infinity;
+        for (const b of band) {
+          const x = S(b[0]), yv = Y(b[side]);
+          // A run starts with a short tick, so isolated origins (sparse forecasts) stay visible.
+          if (b[0] !== prev + 1) {
+            const h = Math.max(1.5, view.pxPerStep / 2);
+            ctx.moveTo(x - h, yv);
+            ctx.lineTo(x + h, yv);
+          } else ctx.lineTo(x, yv);
+          prev = b[0];
+        }
+        ctx.stroke();
+      }
+      ctx.setLineDash([]);
+    }
+    ctx.fillStyle = withAlpha(COLORS[fid], 0.16);
+    for (const [t, lo, hi, missed] of engine.pastBand(fid, k, from, to)) {
+      const x = S(t);
+      ctx.fillRect(x - view.pxPerStep / 2, Y(hi), view.pxPerStep, Math.max(1, Y(lo) - Y(hi)));
+      if (missed) misses.push([x, Y(engine.series[t])]);
+    }
   }
 
   // Series.
@@ -538,7 +562,19 @@ function renderLegend() {
     ...engine.activeSpecs.map((m) => chip(m.id, m.name, `${m.summary} Click to focus.`)),
   ];
   const el = $("legend");
-  el.innerHTML = chips.join("") + `<span class="legend-note" title="A miss of the focused method at lead 1"><span class="dot" style="background:${MISS_COLOR}"></span>miss</span>`;
+  const K = engine.settings.evalLeads;
+  if (histLead > K) histLead = K;
+  const leadOpts = [`<option value="0">No past bands</option>`, ...Array.from({ length: K }, (_, i) => `<option value="${i + 1}"${i + 1 === histLead ? " selected" : ""}>Past bands · lead ${i + 1}</option>`)];
+  el.innerHTML =
+    chips.join("") +
+    `<span class="legend-tail"><select id="hist-lead" title="Draw the band each method issued this many steps ahead, behind the series">${leadOpts.join("")}</select>` +
+    `<span class="legend-note" title="The series left the focused method's past band at this lead"><span class="dot" style="background:${MISS_COLOR}"></span>miss</span></span>`;
+  const hl = el.querySelector<HTMLSelectElement>("#hist-lead")!;
+  hl.value = String(histLead);
+  hl.addEventListener("change", () => {
+    histLead = Number(hl.value) || 0;
+    requestRender();
+  });
   el.querySelectorAll<HTMLButtonElement>(".chip").forEach((b) => b.addEventListener("click", () => setFocus(b.dataset.id!)));
 }
 
