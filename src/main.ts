@@ -3,6 +3,7 @@ import { METHODS, defaultParams } from "./conformal/methods";
 import type { Uncertainty } from "./engine/bootstrap";
 import { Engine, NATIVE_COLOR, NATIVE_ID, type RankBy, type ScoreType, type Settings, defaultSettings, rankRows } from "./engine/engine";
 import { CalibrationProbe, pitHistogram } from "./engine/calibration";
+import { ForecastScheduler } from "./engine/scheduler";
 import { type ReliabilityCurve, maxGap, pitChart, reliabilityChart } from "./ui/calibration";
 import { type Backend, BrowserBackend, NaiveBackend, ServerBackend } from "./model/backends";
 import { FAMILY_NAMES, MODELS, type ModelFamily } from "./model/registry";
@@ -76,10 +77,6 @@ let calibOpen = (() => {
     return false;
   }
 })();
-let inFlight = false;
-/** Origin whose forecast last failed; not retried until the series or backend changes. */
-let failedOrigin: { origin: number; revision: number; backend: Backend } | null = null;
-let lastLatency = 0;
 let playing = false;
 let playTimer: number | null = null;
 let playData: number[] = [];
@@ -135,37 +132,24 @@ function toast(msg: string, ms = 4000) {
 }
 
 // ---------------------------------------------------------------------------------------
-// Forecast scheduling: always forecast the newest origin; skip origins the model could not
-// keep up with. Arrivals after the in-flight origin wait until its forecast is issued.
+// Forecast scheduling: the newest origin first, then the origins skipped while the model
+// could not keep up with the pen (see engine/scheduler.ts).
 
-async function pump() {
-  if (inFlight || backfilling || !backend.ready) return;
-  const t = engine.series.length - 1;
-  if (t < 0 || t <= engine.latestOrigin()) return;
-  if (failedOrigin && failedOrigin.origin === t && failedOrigin.revision === engine.revision && failedOrigin.backend === backend) return;
-  inFlight = true;
-  setPill();
-  const rev = engine.revision;
-  const b = backend;
-  try {
-    engine.catchUp(t);
-    const res = await b.forecast({ context: Float64Array.from(engine.series.slice(0, t + 1)), horizon, symmetric, clip, maxContext });
-    lastLatency = res.ms;
-    if (b === backend && engine.revision === rev && engine.series.length > t) {
-      engine.addForecast(t, res.quantiles, res.horizon, res.levels);
-    }
-    failedOrigin = null;
-  } catch (e) {
-    failedOrigin = { origin: t, revision: rev, backend: b };
-    toast(`Forecast failed: ${e instanceof Error ? e.message : e}. Draw a new point or switch backend to retry.`);
-    playing && togglePlay();
-  } finally {
-    inFlight = false;
+const scheduler = new ForecastScheduler({
+  engine,
+  backend: () => backend,
+  options: () => ({ horizon, symmetric, clip, maxContext }),
+  paused: () => backfilling,
+  changed: () => {
     setPill();
     requestRender();
-    queueMicrotask(pump);
-  }
-}
+  },
+  failed: (e) => {
+    toast(`Forecast failed: ${e instanceof Error ? e.message : e}. Draw a new point or switch backend to retry.`);
+    playing && togglePlay();
+  },
+});
+const pump = () => void scheduler.pump();
 
 async function backfill() {
   if (!backend.ready || backfilling || engine.series.length === 0) return;
@@ -205,6 +189,7 @@ async function backfill() {
 
 /** Drop all forecasts (new model or forecast settings) and start over from the newest origin. */
 function resetForecasts() {
+  scheduler.forget();
   engine.forecasts.clear();
   engine.revision++;
   engine.replay();
@@ -238,6 +223,7 @@ function drawTo(step: number, value: number) {
   for (let j = n; j <= i; j++) {
     const w = n ? (j - (n - 1)) / (i - (n - 1)) : 1;
     engine.append(round(last + (value - last) * w));
+    scheduler.arrived(engine.series.length - 1);
   }
   $("draw-hint").classList.add("hidden");
   requestRender();
@@ -523,6 +509,7 @@ function togglePlay() {
 function startStream(seed = Math.floor(Math.random() * 1e9)) {
   const preset = PRESETS.find((p) => p.id === $<HTMLSelectElement>("preset").value) ?? PRESETS[0];
   engine.clear();
+  scheduler.forget();
   seriesOffset = 0;
   view.start = 0;
   setFollow(true);
@@ -537,7 +524,7 @@ function tick() {
   if (!playing) return;
   const delay = 1000 / 30;
   // Lockstep: wait for the forecast of the newest origin so every origin is scored.
-  const waiting = backend.ready && (inFlight || engine.latestOrigin() < engine.series.length - 1);
+  const waiting = backend.ready && (scheduler.inFlight || engine.latestOrigin() < engine.series.length - 1);
   if (!waiting) {
     if (playIdx >= playData.length || (playStopAt !== null && playIdx >= playStopAt)) {
       playStopAt = null;
@@ -1020,8 +1007,8 @@ function setPill() {
   }
   const pill = $("backend-pill");
   pill.textContent = (backend.kind === "naive" ? "Naive baseline" : backend.label) + (backend.ready ? "" : " · not ready");
-  pill.className = `pill ${!backend.ready ? "err" : inFlight ? "busy" : "ok"}`;
-  $("latency").textContent = lastLatency ? `${lastLatency.toFixed(0)} ms` : "";
+  pill.className = `pill ${!backend.ready ? "err" : scheduler.inFlight ? "busy" : "ok"}`;
+  $("latency").textContent = scheduler.lastLatency ? `${scheduler.lastLatency.toFixed(0)} ms` : "";
 }
 
 // ---------------------------------------------------------------------------------------
@@ -1187,6 +1174,7 @@ function bindControls() {
     pendingReplay = false;
     streamRef = null;
     engine.clear();
+    scheduler.forget();
     seriesOffset = 0;
     view.start = 0;
     view.pxPerStep = 2;
