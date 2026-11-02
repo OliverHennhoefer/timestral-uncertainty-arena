@@ -32,8 +32,8 @@ function method(id: string) {
 
 function nameCell(id: string): string {
   const m = method(id);
-  const tag = id === NATIVE ? `<span class="tag">model</span>` : m.guarantee ? "" : `<span class="tag" title="Model-based; no distribution-free coverage guarantee">no guarantee</span>`;
-  return `<td class="name" title="${esc(m.reference)}"><i class="dot" style="background:${m.color}"></i>${esc(m.name)}${tag}</td>`;
+  const note = m.guarantee || id === NATIVE ? "" : " · No distribution-free coverage guarantee";
+  return `<td class="name" title="${esc(m.reference + note)}">${esc(m.name)}</td>`;
 }
 
 const target = () => 1 - state.run.config.alpha;
@@ -80,21 +80,29 @@ function head<T>(cols: Col<T>[], which: string): string {
     .map((c) => {
       const on = c.key === s.key;
       const arrow = on ? (s.dir === 1 ? " ↑" : " ↓") : "";
-      return `<th data-sort="${c.key}" data-dir="${c.dir ?? 1}" class="${on ? "sorted" : ""}" title="${esc(c.title ?? "Sort")}" aria-sort="${on ? (s.dir === 1 ? "ascending" : "descending") : "none"}">${c.label}${arrow}</th>`;
+      return `<th scope="col" tabindex="0" data-sort="${c.key}" data-dir="${c.dir ?? 1}" class="${on ? "sorted" : ""}" title="${esc(c.title ?? "Sort")}" aria-sort="${on ? (s.dir === 1 ? "ascending" : "descending") : "none"}">${c.label}${arrow}</th>`;
     })
     .join("")}</tr></thead>`;
 }
 
 function bindSort(table: HTMLTableElement, which: string, rerender: () => void) {
-  table.querySelectorAll<HTMLTableCellElement>("th[data-sort]").forEach((th) =>
-    th.addEventListener("click", () => {
+  table.querySelectorAll<HTMLTableCellElement>("th[data-sort]").forEach((th) => {
+    const sort = () => {
       const key = th.dataset.sort!;
       const s = state.sort[which];
       if (s.key === key) s.dir = -s.dir;
       else state.sort[which] = { key, dir: Number(th.dataset.dir) || 1 };
+      const focused = document.activeElement === th;
       rerender();
-    }),
-  );
+      if (focused) table.querySelector<HTMLElement>(`th[data-sort="${key}"]`)?.focus({ preventScroll: true });
+    };
+    th.addEventListener("click", sort);
+    th.addEventListener("keydown", (e) => {
+      if (e.target !== th || (e.key !== "Enter" && e.key !== " ")) return;
+      e.preventDefault();
+      sort();
+    });
+  });
 }
 
 // ---- views --------------------------------------------------------------------------------
@@ -113,17 +121,13 @@ function renderOverall() {
     { key: "pos", label: "#", value: (a) => pos.get(a.id)!, cell: (a) => `<td class="pos">${pos.get(a.id)}</td>` },
     { key: "name", label: "Method", value: (a) => method(a.id).name, cell: (a) => nameCell(a.id) },
     { key: "meanRank", label: "Mean rank", title: "Mean of the per-dataset ranks (lower is better)", value: (a) => a.meanRank, cell: (a) => `<td>${f(a.meanRank, 1)}</td>` },
-    { key: "wins", label: "Wins", title: "Datasets ranked first (ties count)", dir: -1, value: (a) => a.wins, cell: (a) => `<td>${a.wins}</td>` },
     { key: "meanCoverage", label: "Coverage", title: `Mean coverage; target ${pct(target(), 0)}`, dir: -1, value: (a) => a.meanCoverage, cell: (a) => covCell(a.meanCoverage) },
-    { key: "meanGap", label: "Coverage gap", title: "Mean |coverage − target| (lower is better)", value: (a) => a.meanGap, cell: (a) => `<td>${f(100 * a.meanGap, 1)} pt</td>` },
-    { key: "valid", label: "On target", title: `Datasets with coverage ≥ ${pct(target() - state.run.config.tolerance, 0)}`, dir: -1, value: (a) => a.valid, cell: (a) => `<td>${a.valid}/${a.datasets}</td>` },
     { key: "scoreRatio", label: "Score vs native", title: "Geometric mean of interval score ÷ native's (lower is better)", value: (a) => a.scoreRatio, cell: (a) => `<td class="${a.id === NATIVE ? "muted" : a.scoreRatio < 1 ? "good" : ""}">${a.id === NATIVE ? "1" : `${f(a.scoreRatio, 3)}`}</td>` },
-    { key: "better", label: "Better / worse", title: "Datasets where the paired bootstrap says significantly better / worse than native", dir: -1, value: (a) => a.better - a.worse, cell: (a) => `<td>${a.id === NATIVE ? `<span class="muted">–</span>` : `<span class="good">${a.better}</span> / <span class="${a.worse ? "off" : "muted"}">${a.worse}</span>`}</td>` },
   ];
   const table = $<HTMLTableElement>("overall");
   table.innerHTML = head(cols, "overall") + `<tbody>${sortRows(aggs, cols, "overall").map((a) => `<tr class="${a.id === NATIVE ? "native" : ""}">${cols.map((c) => c.cell(a)).join("")}</tr>`).join("")}</tbody>`;
   bindSort(table, "overall", renderOverall);
-  $("overall-sub").textContent = `${N} dataset${N === 1 ? "" : "s"}, ${aggs.length} rows`;
+  $("overall-sub").textContent = `${N} dataset${N === 1 ? "" : "s"}`;
 }
 
 /** Sequential shading for ranks: one hue, darker = better. */
@@ -145,7 +149,7 @@ function renderMatrix() {
     ...ds.map(
       (d): Col<string> => ({
         key: `d:${d.id}`,
-        label: `<span class="dhead" data-dataset="${d.id}">${esc(d.label)}</span>`,
+        label: `<button class="dhead" data-dataset="${d.id}" aria-label="Open ${esc(d.label)} results">${esc(d.label)}</button>`,
         title: `${d.label}: sort by rank; click the name to open its table`,
         value: (id) => rowOf(d, id)?.rank ?? Infinity,
         cell: (id) => {
@@ -160,13 +164,13 @@ function renderMatrix() {
   const table = $<HTMLTableElement>("matrix");
   table.innerHTML = head(cols, "matrix") + `<tbody>${sortRows(rows, cols, "matrix").map((id) => `<tr class="${id === NATIVE ? "native" : ""}">${cols.map((c) => c.cell(id)).join("")}</tr>`).join("")}</tbody>`;
   bindSort(table, "matrix", renderMatrix);
-  $("swatch").innerHTML = [1, 0.66, 0.33, 0].map((t) => `<i style="background:${rankShade(1 + (1 - t) * 9, 10)}"></i>`).join("");
   $("under-note").textContent = `coverage below ${pct(target() - state.run.config.tolerance, 0)} (target ${pct(target(), 0)})`;
   table.querySelectorAll<HTMLElement>(".dhead").forEach((el) =>
     el.addEventListener("click", (e) => {
       e.stopPropagation();
       setDataset(el.dataset.dataset!);
-      $("detail-card").scrollIntoView({ behavior: "smooth", block: "start" });
+      const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      $("detail-card").scrollIntoView({ behavior: reducedMotion ? "instant" : "smooth", block: "start" });
     }),
   );
 }
@@ -180,7 +184,6 @@ function renderDetail() {
     { key: "rank", label: "#", value: (r) => r.rank, cell: (r) => `<td class="pos">${r.rank}${r.tied ? "=" : ""}</td>` },
     { key: "name", label: "Method", value: (r) => method(r.id).name, cell: (r) => nameCell(r.id) },
     { key: "coverage", label: "Coverage", title: `95% block-bootstrap interval shaded; target ${pct(target(), 0)}`, dir: -1, value: (r) => r.coverage, cell: (r) => covCell(r.coverage, r.ci?.coverage) },
-    { key: "gap", label: "Gap", title: "|coverage − target|", value: (r) => r.gap, cell: (r) => `<td>${f(100 * r.gap, 1)} pt</td>` },
     { key: "meanWidth", label: "Width", title: "Mean interval width (series rescaled to 10–90)", value: (r) => r.meanWidth, cell: (r) => `<td>${f(r.meanWidth)}</td>` },
     {
       key: "intervalScore",
@@ -189,9 +192,6 @@ function renderDetail() {
       value: (r) => r.intervalScore,
       cell: (r) => `<td><b>${f(r.intervalScore)}</b>${r.ci ? `<span class="ci-text">${f(r.ci.intervalScore[0], 1)}–${f(r.ci.intervalScore[1], 1)}</span>` : ""}</td>`,
     },
-    { key: "scoreRatio", label: "vs native", title: "Interval score ÷ native's; ▲/▼ = significantly worse/better", value: (r) => r.scoreRatio, cell: (r) => `<td>${r.id === NATIVE ? `<span class="muted">1</span>` : `${f(r.scoreRatio, 3)}${r.vsNative === -1 ? ` <span class="good" title="significantly better">▼</span>` : r.vsNative === 1 ? ` <span class="off" title="significantly worse">▲</span>` : ""}`}</td>` },
-    { key: "lead1", label: "Lead 1", title: "Coverage at lead 1", dir: -1, value: (r) => r.leadCoverage[0], cell: (r) => `<td class="${covClass(r.leadCoverage[0])}">${pct(r.leadCoverage[0], 0)}</td>` },
-    { key: "leadK", label: `Lead ${state.run.config.evalLeads}`, title: `Coverage at the last scored lead`, dir: -1, value: (r) => r.leadCoverage[r.leadCoverage.length - 1], cell: (r) => { const v = r.leadCoverage[r.leadCoverage.length - 1]; return `<td class="${covClass(v)}">${pct(v, 0)}</td>`; } },
   ];
   const table = $<HTMLTableElement>("detail");
   table.innerHTML = head(cols, "detail") + `<tbody>${sortRows(d.rows.filter((r) => r.n > 0), cols, "detail").map((r) => `<tr class="${r.id === NATIVE ? "native" : ""}${r.rank === 1 ? " first" : ""}">${cols.map((c) => c.cell(r)).join("")}</tr>`).join("")}</tbody>`;
@@ -202,16 +202,16 @@ function renderFindings() {
   const { findings: fs, caveats } = findings(state.run);
   $("findings").innerHTML = fs.map((s) => `<li>${esc(s)}</li>`).join("");
   $("caveats").innerHTML = caveats.map((s) => `<li>${esc(s)}</li>`).join("");
-  $<HTMLDetailsElement>("findings-card").querySelector("details")!.open = state.run.model.id === "naive";
 }
 
 function renderMeta() {
   const r = state.run;
   const c = r.config;
   const when = new Date(r.createdAt);
-  $("meta").innerHTML =
-    `<b>${esc(r.model.label)}</b> · ${r.datasets.length} datasets × ${r.methods.length} rows · run ${when.toISOString().slice(0, 10)}${r.commit ? ` at <code>${esc(r.commit)}</code>` : ""} · ` +
-    `α = ${c.alpha} (target ${pct(1 - c.alpha, 0)}), ${esc(c.scoreType.toUpperCase())} score, leads 1–${c.evalLeads}, window ${c.window}, warm-up ${c.warmup}, context ${c.maxContext}, up to ${c.length} points per dataset`;
+  $("meta").innerHTML = `<b>${esc(r.model.id === "naive" ? "Naive baseline" : r.model.label)}</b> · ${r.datasets.length} datasets · Target ${pct(1 - c.alpha, 0)}`;
+  $("run-config").innerHTML =
+    `${when.toISOString().slice(0, 10)}${r.commit ? ` · <code>${esc(r.commit)}</code>` : ""} · ${esc(c.scoreType.toUpperCase())} · ` +
+    `Steps 1–${c.evalLeads}, window ${c.window}, warm-up ${c.warmup}, context ${c.maxContext}, up to ${c.length} points`;
 }
 
 function renderGroups() {

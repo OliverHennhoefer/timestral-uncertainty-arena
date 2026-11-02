@@ -14,7 +14,7 @@ export function fitCanvas(canvas: HTMLCanvasElement): { ctx: CanvasRenderingCont
   return { ctx, w, h };
 }
 
-export const FONT = '11px -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", system-ui, sans-serif';
+export const FONT = '12px -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", system-ui, sans-serif';
 
 export function cssVar(name: string): string {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -41,13 +41,13 @@ export function lineChart(
   opts: { yMin?: number; yMax?: number; floor?: number; target?: number; format?: (v: number) => string } = {},
 ): void {
   const { ctx, w, h } = fitCanvas(canvas);
-  const pad = { l: 36, r: 6, t: 6, b: 18 };
+  const pad = { l: 44, r: 8, t: 10, b: 24 };
   ctx.clearRect(0, 0, w, h);
   const ink = cssVar("--muted"), grid = cssVar("--grid");
   ctx.font = FONT;
   if (xs.length < 2) {
     ctx.fillStyle = ink;
-    ctx.fillText("waiting for evaluated forecasts…", pad.l, h / 2);
+    ctx.fillText("Awaiting forecasts", pad.l, h / 2);
     return;
   }
   let lo = opts.yMin ?? Infinity, hi = opts.yMax ?? -Infinity;

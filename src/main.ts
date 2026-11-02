@@ -63,10 +63,9 @@ let rankLead = 0;
 let uncCache: { key: string; at: number; len: number; value: Map<string, Uncertainty> } | null = null;
 let uncTimer = 0;
 let focusId = "aci";
-/** Lead whose past bands are drawn behind the series (0 = none). */
-let histLead = 1;
+/** Show the focused method's one-step interval behind the observed series. */
+const histLead = 1;
 const MISS_COLOR = "#FF3B30";
-let showAll = true;
 /** Calibration diagnostics; the probe only runs while its card is open. */
 const calib = new CalibrationProbe();
 let calibTimer = 0;
@@ -77,9 +76,6 @@ let calibOpen = (() => {
     return false;
   }
 })();
-/** Off: a stroke only moves forward in time; drawing left of the end does nothing. */
-let allowRewind = false;
-
 let inFlight = false;
 /** Origin whose forecast last failed; not retried until the series or backend changes. */
 let failedOrigin: { origin: number; revision: number; backend: Backend } | null = null;
@@ -108,6 +104,8 @@ const COLORS: Record<string, string> = { [NATIVE_ID]: NATIVE_COLOR, ...Object.fr
 
 function loadSettings(): Settings {
   const d = defaultSettings();
+  // Start with a useful, compact comparison. The full method library stays available.
+  d.enabled = Object.fromEntries(METHODS.map((m) => [m.id, ["split", "aci", "dtaci"].includes(m.id)]));
   try {
     const raw = localStorage.getItem("ctimestral-settings");
     if (raw) {
@@ -173,6 +171,7 @@ async function backfill() {
   if (!backend.ready || backfilling || engine.series.length === 0) return;
   if (playing) togglePlay();
   backfilling = true;
+  requestRender();
   const b = backend;
   const n = engine.series.length;
   const rev = engine.revision;
@@ -232,20 +231,13 @@ function valueAt(clientY: number): number {
 
 function drawTo(step: number, value: number) {
   if (engine.series.length === 0) seriesOffset = step;
-  let i = step - seriesOffset;
-  if (i < 0) i = 0;
+  const i = Math.max(0, step - seriesOffset);
   const n = engine.series.length;
-  if (i < n) {
-    if (i === n - 1) return; // same column: keep the first value
-    if (!allowRewind) return; // forward-only: never overwrite recorded history
-    engine.truncate(i);
-    engine.append(round(value));
-  } else {
-    const last = n ? engine.series[n - 1] : value;
-    for (let j = n; j <= i; j++) {
-      const w = n ? (j - (n - 1)) / (i - (n - 1)) : 1;
-      engine.append(round(last + (value - last) * w));
-    }
+  if (i < n) return; // strokes only extend the series
+  const last = n ? engine.series[n - 1] : value;
+  for (let j = n; j <= i; j++) {
+    const w = n ? (j - (n - 1)) / (i - (n - 1)) : 1;
+    engine.append(round(last + (value - last) * w));
   }
   $("draw-hint").classList.add("hidden");
   requestRender();
@@ -296,7 +288,9 @@ canvas.addEventListener("mousemove", (e) => {
 });
 
 canvas.addEventListener("pointerdown", (e) => {
-  if (inGutter(e) && engine.series.length) {
+  if (e.button !== 0) return;
+  if (inGutter(e)) {
+    if (!engine.series.length) return;
     yDrag = { y: e.clientY, lo: view.yMin, hi: view.yMax };
     canvas.setPointerCapture(e.pointerId);
     return;
@@ -307,7 +301,6 @@ canvas.addEventListener("pointerdown", (e) => {
   drawing = true;
   canvas.setPointerCapture(e.pointerId);
   const step = stepAt(e.clientX);
-  if (allowRewind && engine.series.length && step - seriesOffset < engine.series.length - 1) engine.truncate(Math.max(0, step - seriesOffset));
   drawTo(step, valueAt(e.clientY));
 });
 canvas.addEventListener("pointermove", (e) => {
@@ -350,7 +343,7 @@ function followEnd(trigger: number, to: number) {
 
 
 // ---------------------------------------------------------------------------------------
-// Navigation: x zoom and pan, the overview strip, follow-latest and fullscreen.
+// Navigation: x zoom and pan, the overview strip, and follow-latest.
 
 /** Whether the view keeps the newest point in sight. Any manual navigation turns it off. */
 let follow = true;
@@ -360,18 +353,24 @@ const MIN_PX = 0.2, MAX_PX = 40;
 function setFollow(on: boolean) {
   follow = on;
   $("x-latest").classList.toggle("active", on);
+  $("x-latest").setAttribute("aria-pressed", String(on));
 }
 
-/** Total steps the overview spans: the series plus room for the latest forecast. */
-function overviewSpan(): number {
+/** Forecast steps actually shown by the current alignment. */
+function forecastSteps(): number {
   const f = engine.forecasts.get(engine.latestOrigin());
-  const end = seriesOffset + engine.series.length + (f ? f.horizon : 0);
+  return f ? align === "full" ? f.horizon : Math.min(f.horizon, engine.settings.evalLeads) : 0;
+}
+
+function overviewSpan(): number {
+  const end = seriesOffset + engine.series.length + forecastSteps() + 4;
   return Math.max(end, view.start + viewSteps(), 1);
 }
 
 function setXView(start: number, px = view.pxPerStep) {
   view.pxPerStep = Math.min(MAX_PX, Math.max(MIN_PX, px));
-  view.start = Math.max(0, start);
+  const end = Math.max(seriesOffset + engine.series.length + forecastSteps() + 4, viewSteps());
+  view.start = Math.min(Math.max(0, start), end - viewSteps());
   setFollow(false);
   requestRender();
 }
@@ -387,9 +386,9 @@ function zoomX(factor: number, clientX?: number) {
 
 function fitAll() {
   const w = canvas.getBoundingClientRect().width;
-  const f = engine.forecasts.get(engine.latestOrigin());
-  const steps = Math.max(50, engine.series.length + (f ? f.horizon : 0) + 4);
+  const steps = Math.max(50, engine.series.length + forecastSteps() + 4);
   setXView(seriesOffset - 2, w / steps);
+  setYMode(yAuto);
 }
 
 function goLatest() {
@@ -420,11 +419,12 @@ canvas.addEventListener(
 /** Overview strip: the whole series, with the visible window as a draggable box. */
 function renderOverview() {
   const { ctx, w, h } = fitCanvas(overview);
-  ctx.fillStyle = cssVar("--plot-bg");
+  ctx.fillStyle = cssVar("--surface-2");
   ctx.fillRect(0, 0, w, h);
   const span = overviewSpan();
   const OX = (step: number) => (step / span) * w;
   const n = engine.series.length;
+  if (!n) return;
   if (n) {
     let lo = Infinity, hi = -Infinity;
     for (const v of engine.series) (lo = Math.min(lo, v)), (hi = Math.max(hi, v));
@@ -446,11 +446,11 @@ function renderOverview() {
     ctx.stroke();
   }
   const x0 = OX(view.start), x1 = OX(view.start + viewSteps());
-  ctx.fillStyle = withAlpha(cssVar("--accent").startsWith("#") ? cssVar("--accent") : "#0071e3", 0.12);
+  ctx.fillStyle = withAlpha(cssVar("--accent"), 0.06);
   ctx.fillRect(x0, 0, Math.max(3, x1 - x0), h);
-  ctx.strokeStyle = withAlpha(cssVar("--accent").startsWith("#") ? cssVar("--accent") : "#0071e3", 0.7);
-  ctx.lineWidth = 1.5;
-  ctx.strokeRect(x0 + 0.75, 0.75, Math.max(3, x1 - x0) - 1.5, h - 1.5);
+  ctx.strokeStyle = withAlpha(cssVar("--accent"), 0.38);
+  ctx.lineWidth = 1;
+  ctx.strokeRect(x0 + 0.5, 0.5, Math.max(3, x1 - x0) - 1, h - 1);
 }
 
 let ovDrag: { mode: "move" | "l" | "r"; x: number; start: number; end: number } | null = null;
@@ -459,6 +459,7 @@ const ovStep = (clientX: number) => {
   return ((clientX - r.left) / r.width) * overviewSpan();
 };
 overview.addEventListener("pointerdown", (e) => {
+  if (e.button !== 0 || !engine.series.length) return;
   const r = overview.getBoundingClientRect();
   const span = overviewSpan();
   const x0 = r.left + (view.start / span) * r.width, x1 = r.left + ((view.start + viewSteps()) / span) * r.width;
@@ -501,22 +502,14 @@ overview.addEventListener(
   { passive: false },
 );
 
-function toggleFullscreen() {
-  const card = document.querySelector<HTMLElement>(".plot-card")!;
-  if (document.fullscreenElement) void document.exitFullscreen();
-  else void card.requestFullscreen?.();
-}
-document.addEventListener("fullscreenchange", () => {
-  $("x-full").classList.toggle("active", !!document.fullscreenElement);
-  window.setTimeout(() => (follow ? followEnd(0.8, 0.7) : requestRender()), 60);
-});
-
 // ---------------------------------------------------------------------------------------
-// Synthetic streams
+// Example streams
 
 function togglePlay() {
   playing = !playing;
   $("btn-play").textContent = playing ? "Pause" : "Play";
+  $("btn-play").setAttribute("aria-label", playing ? "Pause" : "Play example");
+  $("btn-play").setAttribute("aria-pressed", String(playing));
   pendingReplay = false;
   if (playing) {
     if (playIdx >= playData.length || (engine.series.length === 0 && playIdx > 0)) startStream();
@@ -542,7 +535,7 @@ function startStream(seed = Math.floor(Math.random() * 1e9)) {
 
 function tick() {
   if (!playing) return;
-  const delay = 1000 / Number($<HTMLInputElement>("speed").value);
+  const delay = 1000 / 30;
   // Lockstep: wait for the forecast of the newest origin so every origin is scored.
   const waiting = backend.ready && (inFlight || engine.latestOrigin() < engine.series.length - 1);
   if (!waiting) {
@@ -591,6 +584,13 @@ function renderMain() {
   const S = (i: number) => X(i + seriesOffset); // series index to x
 
   const n = engine.series.length;
+  $("series-count").textContent = n ? `${n.toLocaleString()} points · ${Math.min(horizon, engine.settings.evalLeads)} calibrated steps` : "No observations";
+  $("axis-start").textContent = `Step ${Math.floor(view.start)}`;
+  $("axis-mid").textContent = String(Math.round(view.start + viewSteps() / 2));
+  $("axis-end").textContent = String(Math.round(view.start + viewSteps()));
+  $<HTMLButtonElement>("btn-clear").disabled = n === 0;
+  $<HTMLButtonElement>("btn-backfill").disabled = n === 0 || !backend.ready || backfilling;
+  $<HTMLButtonElement>("btn-play").disabled = !backend.ready || backfilling;
   const first = Math.max(0, Math.floor(view.start - seriesOffset) - 1);
   const last = Math.min(n - 1, Math.ceil(view.start + w / view.pxPerStep - seriesOffset) + 1);
 
@@ -609,7 +609,7 @@ function renderMain() {
   if (f) {
     const K = Math.min(f.horizon, engine.settings.evalLeads);
     let reach = 0;
-    for (const id of engine.activeSpecs.map((m) => m.id).filter((id) => showAll || id === fid)) {
+    for (const id of engine.activeSpecs.map((m) => m.id).filter((id) => id === fid)) {
       const ivs: [number, number][] = [];
       for (let j = 0; j < K; j++) {
         const iv = engine.interval(f, j, id);
@@ -662,7 +662,7 @@ function renderMain() {
   ctx.strokeStyle = grid;
   ctx.lineWidth = 1;
   ctx.font = FONT;
-  const labelCol = withAlpha(muted.startsWith("#") ? muted : "#8e8e93", 0.7);
+  const labelCol = muted;
   const ticks = niceTicks(view.yMin, view.yMax, Math.max(3, Math.round(h / 90)));
   const step = ticks.length > 1 ? ticks[1] - ticks[0] : 1;
   const digits = Math.max(0, -Math.floor(Math.log10(step) + 1e-9));
@@ -762,7 +762,7 @@ function renderMain() {
         ivs.forEach((iv, j) => ctx.lineTo(xAt(j), Y(iv[side])));
         ctx.stroke();
       }
-      if (id === fid || showAll) ivs.forEach(([l, u], j) => markClip(xAt(j) - colW / 2, colW, l, u, col));
+      ivs.forEach(([l, u], j) => markClip(xAt(j) - colW / 2, colW, l, u, col));
     }
     ctx.strokeStyle = withAlpha("#8e8e93", 0.35);
     ctx.setLineDash([2, 4]);
@@ -782,7 +782,7 @@ function renderMain() {
   const nTop = clipped.some((c) => c[3]), nBot = clipped.some((c) => !c[3]);
   if (nTop || nBot) {
     ctx.fillStyle = labelCol;
-    const note = "Some intervals run past the axis. Choose “Y: fit bands”, or scroll on the axis to zoom.";
+    const note = "Intervals extend beyond the view. Use Fit or scroll on the vertical axis.";
     if (yMode !== "bands" && w > 520) ctx.fillText(note, w - ctx.measureText(note).width - 10, h - 10);
   }
 }
@@ -794,9 +794,9 @@ function renderCharts() {
   $("cov-target").textContent = `target ${(target * 100).toFixed(0)}%`;
   $("cov-target").title = `Over the last ${engine.settings.rolling} time steps (all scored leads)`;
   // The focused method is drawn last and solid; the others recede.
-  const order = [...ids.filter((id) => id !== focusId), ...ids.filter((id) => id === focusId)];
+  const order = [...ids.filter((id) => id === NATIVE_ID && id !== focusId), ...ids.filter((id) => id === focusId)];
   const trace = (id: string, values: number[]) => ({
-    color: id === focusId ? COLORS[id] : withAlpha(COLORS[id], 0.45),
+    color: id === focusId ? COLORS[id] : withAlpha(COLORS[id], 0.7),
     values,
     width: id === focusId ? 2 : 1.25,
     dash: id === NATIVE_ID ? [4, 3] : undefined,
@@ -813,6 +813,11 @@ function renderCharts() {
     order.map((id) => trace(id, engine.metrics.get(id)!.widthTrace)),
     { yMin: 0, format: (v) => v.toFixed(1) },
   );
+  // Keep the workspace quiet and avoid drawing canvases in a closed disclosure.
+  if (!calibOpen) {
+    $("calib-sub").textContent = "";
+    return;
+  }
   // Per-lead profile: is the method calibrated at every lead, not just on average?
   const K = engine.settings.evalLeads;
   const leads = Array.from({ length: K }, (_, i) => i + 1);
@@ -853,9 +858,9 @@ function renderCalibration() {
     return Number.isFinite(g) ? ` · max gap ${g.toFixed(1)} pts` : "";
   };
   $("rel-legend").innerHTML = curves
-    .map((c) => `<span class="rel-key"><span class="line${c.dash ? " dash" : ""}" style="border-color:${c.color}"></span>${c.name}${gap(c.points)}</span>`)
+    .map((c) => `<span class="rel-key" title="${c.name}${gap(c.points)}"><span class="line${c.dash ? " dash" : ""}" style="border-color:${c.color}"></span>${c.name}</span>`)
     .join("");
-  const busy = mid && !calib.ready ? ` · rerunning ${NAMES[mid]} at other α… ${Math.round(calib.progress * 100)}%` : "";
+  const busy = mid && !calib.ready ? ` · Updating ${Math.round(calib.progress * 100)}%` : "";
   $("calib-sub").textContent = `${pits.length} pairs · ${lead ? `lead ${lead}` : `leads 1–${engine.settings.evalLeads}`}${busy}`;
 }
 
@@ -906,7 +911,7 @@ function applyAlign() {
     }
     el.value = String(horizon);
     el.disabled = true;
-    hint.textContent = `Every lead 1–${horizon} gets its own calibration. Costs about ${Math.round(horizon / 16)}× the work of 16 leads; lead k is scored only k steps later and needs its own warm-up, and the pooled metrics now average over all ${horizon} leads.`;
+    hint.textContent = `Calibrates all ${horizon} steps.`;
   } else {
     // Leaving "calibrate" restores the calibrated leads the user had before.
     if (leadsBeforeCalibrate !== null) {
@@ -921,9 +926,9 @@ function applyAlign() {
     el.value = String(engine.settings.evalLeads);
     hint.textContent =
       align === "cut"
-        ? `The native forecast is drawn only for leads 1–${Math.min(horizon, engine.settings.evalLeads)}, matching the conformal bands.`
+        ? `${Math.min(horizon, engine.settings.evalLeads)} calibrated steps.`
         : engine.settings.evalLeads < horizon
-          ? `Native draws all ${horizon} steps; conformal bands stop at lead ${engine.settings.evalLeads}.`
+          ? `Shows all ${horizon} model steps; ${engine.settings.evalLeads} are calibrated.`
           : "";
   }
   requestRender();
@@ -942,6 +947,16 @@ function renderTable() {
   const target = 1 - alpha;
   const unc = uncertainty();
   const rows = rankRows(engine.table(rankLead || undefined), alpha, rankBy, 0.02, unc);
+  const hasData = rows.some((r) => r.n > 0);
+  $("rank-empty").classList.toggle("hidden", hasData);
+  $("rank-table").classList.toggle("hidden", !hasData);
+  const criteria: Record<RankBy, string> = {
+    interval_score: "Interval score",
+    validity_then_width: "Coverage, then width",
+    rolling_gap: "Rolling coverage",
+  };
+  $("ranking-scope").textContent = `${criteria[rankBy]} · ${rankLead ? `step ${rankLead}` : "all steps"}`;
+  if (!hasData) return;
   // Percentile intervals need not be symmetric, so show the lower and upper distances separately.
   const pm = (est: number, ci: [number, number] | undefined, scale = 1, digits = 2) => {
     if (!ci || !Number.isFinite(est) || !Number.isFinite(ci[0]) || !Number.isFinite(ci[1])) return `<span class="pm"></span>`;
@@ -954,20 +969,22 @@ function renderTable() {
   const bar = (v: number, col: string) =>
     `<span class="covbar"><span class="fill" style="width:${Number.isFinite(v) ? v * 100 : 0}%;background:${col}"></span><span class="target" style="left:${target * 100}%"></span></span>`;
   const html = [
-    `<tr><th>#</th><th>Method</th><th>Coverage</th><th>Width</th><th>Score</th></tr>`,
+    `<thead><tr><th scope="col">#</th><th scope="col">Method</th><th scope="col">Coverage</th><th scope="col">Width</th><th scope="col">Score</th></tr></thead><tbody>`,
     ...rows.map((r, i) => {
       const off = Number.isFinite(r.coverage) && Math.abs(r.coverage - target) > 0.05 ? ' class="off"' : "";
       const u = unc.get(r.id);
       const tip = `Rolling coverage ${pct(r.rollingCoverage)} · ${r.n} pairs${r.tied ? " · tied with the row above" : ""}`;
       return `<tr class="${i === 0 && r.n > 0 ? "first" : ""}${r.id === focusId ? " focus" : ""}${r.tied ? " tied" : ""}" data-id="${r.id}" title="${tip}">
         <td>${r.n ? r.rank : "–"}</td>
-        <td><span class="dot" style="background:${COLORS[r.id]}"></span>${NAMES[r.id]}</td>
+        <td><button class="rank-method" aria-pressed="${r.id === focusId}" aria-label="Focus ${NAMES[r.id]}"><span class="dot" style="background:${COLORS[r.id]}"></span>${NAMES[r.id]}</button></td>
         <td${off}>${bar(r.coverage, COLORS[r.id])}${pct(r.coverage)}${pm(r.coverage, u?.coverage, 100, 1)}</td>
         <td>${num(r.meanWidth)}</td>
         <td>${num(r.intervalScore)}${pm(r.intervalScore, u?.intervalScore)}</td></tr>`;
     }),
   ];
-  $("rank-table").innerHTML = html.join("");
+  const activeRow = document.activeElement?.closest<HTMLElement>("#rank-table tr[data-id]")?.dataset.id;
+  $("rank-table").innerHTML = html.join("") + "</tbody>";
+  if (activeRow) $("rank-table").querySelector<HTMLButtonElement>(`tr[data-id="${activeRow}"] button`)?.focus({ preventScroll: true });
 }
 
 function setFocus(id: string) {
@@ -977,28 +994,16 @@ function setFocus(id: string) {
 }
 
 function renderLegend() {
-  // Chips double as the focus picker: the focused method is filled and shows its lead-1 history.
-  const chip = (id: string, name: string, tip: string) =>
-    `<button class="chip${id === focusId ? " on" : ""}" data-id="${id}" title="${tip}"><span class="dot" style="background:${COLORS[id]}"></span>${name}</button>`;
-  const chips = [
-    chip(NATIVE_ID, backend.modelName, "Native quantiles: α band dashed, 10–90% shaded. Click to focus."),
-    ...engine.activeSpecs.map((m) => chip(m.id, m.name, `${m.summary} Click to focus.`)),
-  ];
-  const el = $("legend");
-  const K = engine.settings.evalLeads;
-  if (histLead > K) histLead = K;
-  const leadOpts = [`<option value="0">No past bands</option>`, ...Array.from({ length: K }, (_, i) => `<option value="${i + 1}"${i + 1 === histLead ? " selected" : ""}>Past bands · lead ${i + 1}</option>`)];
-  el.innerHTML =
-    chips.join("") +
-    `<span class="legend-tail"><select id="hist-lead" title="Draw the band the focused method issued this many steps ahead, behind the series">${leadOpts.join("")}</select>` +
-    `<span class="legend-note" title="The series left the focused method's past band at this lead"><span class="dot" style="background:${MISS_COLOR}"></span>miss</span></span>`;
-  const hl = el.querySelector<HTMLSelectElement>("#hist-lead")!;
-  hl.value = String(histLead);
-  hl.addEventListener("change", () => {
-    histLead = Number(hl.value) || 0;
-    requestRender();
-  });
-  el.querySelectorAll<HTMLButtonElement>(".chip").forEach((b) => b.addEventListener("click", () => setFocus(b.dataset.id!)));
+  if (focusId !== NATIVE_ID && !engine.settings.enabled[focusId]) focusId = NATIVE_ID;
+  const focus = $<HTMLSelectElement>("focus-method");
+  focus.innerHTML = `<option value="${NATIVE_ID}">${backend.modelName} native</option>` + engine.activeSpecs.map((m) => `<option value="${m.id}">${m.name}</option>`).join("");
+  focus.value = focusId;
+  $("method-count").textContent = String(engine.activeSpecs.length);
+  $("legend").innerHTML =
+    `<span class="legend-key"><i class="legend-line" style="color:var(--series)"></i>Observed</span>` +
+    `<span class="legend-key"><i class="legend-line dashed" style="color:${NATIVE_COLOR}"></i>Native</span>` +
+    (focusId === NATIVE_ID ? "" : `<span class="legend-key"><i class="legend-line" style="color:${COLORS[focusId]}"></i>${NAMES[focusId]}</span>`) +
+    `<span class="legend-key"><i class="dot" style="background:${MISS_COLOR}"></i>Misses</span>`;
 }
 
 /** Model family the browser panel lists, from the backend dropdown. */
@@ -1014,9 +1019,9 @@ function setPill() {
     renderLegend();
   }
   const pill = $("backend-pill");
-  pill.textContent = backend.label + (backend.ready ? "" : " (not ready)");
+  pill.textContent = (backend.kind === "naive" ? "Naive baseline" : backend.label) + (backend.ready ? "" : " · not ready");
   pill.className = `pill ${!backend.ready ? "err" : inFlight ? "busy" : "ok"}`;
-  $("latency").textContent = lastLatency ? `${lastLatency.toFixed(0)} ms / forecast` : "";
+  $("latency").textContent = lastLatency ? `${lastLatency.toFixed(0)} ms` : "";
 }
 
 // ---------------------------------------------------------------------------------------
@@ -1034,11 +1039,11 @@ function renderMethods() {
   const s = engine.settings;
   const groups: [string, string][] = [["conformal", "Conformal"], ["bayesian", "Bayesian"]];
   const item = (m: (typeof METHODS)[number]) => `<div class="method" data-id="${m.id}">
-      <label class="switch" title="${m.summary} (${m.reference})${m.guarantee === false ? " · no distribution-free coverage guarantee" : ""}">
-        <input type="checkbox" class="toggle" ${s.enabled[m.id] ? "checked" : ""} /><span></span>
-        <i class="dot" style="background:${m.color}"></i><b class="name">${m.name}</b>
+      <label class="check-row" title="${m.summary} (${m.reference})${m.guarantee === false ? " · no distribution-free coverage guarantee" : ""}">
+        <input type="checkbox" class="toggle" ${s.enabled[m.id] ? "checked" : ""} />
+        <i class="dot" style="background:${m.color}"></i><span class="name">${m.name}</span>
       </label>
-      ${m.params.length ? `<details class="params-box"><summary title="Parameters">${m.params.map((p) => p.label).join(", ")}</summary>
+      ${m.params.length ? `<details class="params-box"><summary aria-label="${m.name} parameters">Parameters</summary>
         <div class="ref">${m.reference}</div>
         <div class="params">${m.params
           .map((p) => `<label title="${p.help ?? ""}">${p.label}<input type="number" data-param="${p.key}" min="${p.min}" max="${p.max}" step="${p.step}" value="${s.params[m.id]?.[p.key] ?? p.default}" /></label>`)
@@ -1060,7 +1065,9 @@ function renderMethods() {
         const spec = METHODS.find((m) => m.id === id)!;
         const v = Number(inp.value);
         if (!Number.isFinite(v)) return;
-        const params = { ...defaultParams(spec), ...engine.settings.params[id], [inp.dataset.param!]: v };
+        const value = Math.max(Number(inp.min), Math.min(Number(inp.max), v));
+        inp.value = String(value);
+        const params = { ...defaultParams(spec), ...engine.settings.params[id], [inp.dataset.param!]: value };
         applySettings({ params: { ...engine.settings.params, [id]: params } });
       }),
     );
@@ -1074,9 +1081,9 @@ function renderModels() {
   list.innerHTML = MODELS.filter((m) => m.family === family).map(
     (m) => `<div class="model-row ${activeRepo === m.repo && backend.kind === "browser" && backend.ready ? "active" : ""}">
       <div class="info"><div class="title">${m.label} <span class="muted small">${m.params} · ~${m.approxMB} MB${cachedRepos.has(m.repo) ? " · cached" : ""}</span></div>
-      <div class="note">${m.note}</div></div>
+      </div>
       <button data-load="${m.repo}">${cachedRepos.has(m.repo) ? "Use" : "Download"}</button>
-      ${cachedRepos.has(m.repo) ? `<button data-evict="${m.repo}" title="Remove from browser cache">✕</button>` : ""}
+      ${cachedRepos.has(m.repo) ? `<button data-evict="${m.repo}" title="Remove from browser cache" aria-label="Remove ${m.label} from cache">×</button>` : ""}
     </div>`,
   ).join("");
   list.querySelectorAll<HTMLButtonElement>("button[data-load]").forEach((b) => b.addEventListener("click", () => loadBrowserModel(b.dataset.load!)));
@@ -1162,10 +1169,13 @@ async function connectServer() {
 
 function bindControls() {
   const preset = $<HTMLSelectElement>("preset");
-  const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
-  const option = (p: (typeof PRESETS)[number]) => `<option value="${p.id}"${p.source ? ` title="${esc(p.source)}"` : ""}>${esc(p.label)}</option>`;
-  const groups = [...new Set(PRESETS.map((p) => p.group ?? "Synthetic"))];
-  preset.innerHTML = groups.map((g) => `<optgroup label="${g}">${PRESETS.filter((p) => (p.group ?? "Synthetic") === g).map(option).join("")}</optgroup>`).join("");
+  // A small set covers seasonality, a distribution shift, and two real series.
+  // Older shared scenarios can still restore any bundled stream.
+  for (const id of ["sine", "levels", "airline", "electricity"]) {
+    const p = PRESETS.find((p) => p.id === id)!;
+    preset.add(new Option(p.label, p.id));
+  }
+  $("focus-method").addEventListener("change", (e) => setFocus((e.target as HTMLSelectElement).value));
   $("btn-play").addEventListener("click", togglePlay);
   preset.addEventListener("change", () => {
     if (playing) togglePlay();
@@ -1179,6 +1189,8 @@ function bindControls() {
     engine.clear();
     seriesOffset = 0;
     view.start = 0;
+    view.pxPerStep = 2;
+    setYMode(yAuto);
     setFollow(true);
     playIdx = playData.length;
     $("draw-hint").classList.remove("hidden");
@@ -1230,18 +1242,25 @@ function bindControls() {
   const yModeSel = $<HTMLSelectElement>("y-mode");
   yModeSel.value = yMode;
   yModeSel.addEventListener("change", () => setYMode(yModeSel.value as YMode));
-  $("y-in").addEventListener("click", () => zoomY(1 / 1.5));
   $("x-in").addEventListener("click", () => zoomX(1 / 1.5));
   $("x-out").addEventListener("click", () => zoomX(1.5));
   $("x-fit").addEventListener("click", fitAll);
   $("x-latest").addEventListener("click", goLatest);
-  $("x-full").addEventListener("click", toggleFullscreen);
-  document.addEventListener("keydown", (e) => {
-    const t = e.target as HTMLElement;
-    if (t && (t.tagName === "INPUT" || t.tagName === "SELECT" || t.tagName === "TEXTAREA")) return;
-    if (e.key === "f" && !e.metaKey && !e.ctrlKey) toggleFullscreen();
-  });
-  $("y-out").addEventListener("click", () => zoomY(1.5));
+  const navigate = (e: KeyboardEvent) => {
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    switch (e.key) {
+      case "ArrowLeft": setXView(view.start - viewSteps() * 0.15); break;
+      case "ArrowRight": setXView(view.start + viewSteps() * 0.15); break;
+      case "+": case "=": zoomX(1 / 1.5); break;
+      case "-": zoomX(1.5); break;
+      case "0": fitAll(); break;
+      case "End": goLatest(); break;
+      default: return;
+    }
+    e.preventDefault();
+  };
+  canvas.addEventListener("keydown", navigate);
+  overview.addEventListener("keydown", navigate);
 
   const alignSel = $<HTMLSelectElement>("align");
   alignSel.value = align;
@@ -1255,7 +1274,9 @@ function bindControls() {
     applyAlign();
   });
   $<HTMLInputElement>("max-context").addEventListener("change", (e) => {
-    maxContext = Math.max(32, Number((e.target as HTMLInputElement).value) || 256);
+    const input = e.target as HTMLInputElement;
+    maxContext = Math.min(32768, Math.max(32, Math.round(Number(input.value)) || 256));
+    input.value = String(maxContext);
     resetForecasts();
   });
   $<HTMLInputElement>("symmetric").addEventListener("change", (e) => {
@@ -1269,7 +1290,7 @@ function bindControls() {
 
   const alpha = $<HTMLInputElement>("alpha");
   alpha.addEventListener("input", () => {
-    const a = Number(alpha.value);
+    const a = (100 - Number(alpha.value)) / 100;
     $("alpha-val").textContent = alphaLabel(a);
     applySettings({ alpha: a });
   });
@@ -1278,8 +1299,11 @@ function bindControls() {
   const num = (id: string, key: "evalLeads" | "window" | "warmup" | "rolling") => {
     const el = $<HTMLInputElement>(id);
     el.addEventListener("change", () => {
-      const v = Math.max(Number(el.min) || 1, Math.round(Number(el.value)));
-      if (Number.isFinite(v)) applySettings({ [key]: v } as Partial<Settings>);
+      const v = Math.min(Number(el.max), Math.max(Number(el.min) || 1, Math.round(Number(el.value))));
+      if (Number.isFinite(v)) {
+        el.value = String(v);
+        applySettings({ [key]: v } as Partial<Settings>);
+      }
     });
   };
   syncSettingControls();
@@ -1292,22 +1316,11 @@ function bindControls() {
   num("window", "window");
   num("warmup", "warmup");
   num("rolling", "rolling");
-  $<HTMLInputElement>("show-all").addEventListener("change", (e) => {
-    showAll = (e.target as HTMLInputElement).checked;
-    requestRender();
-  });
-  const rewind = $<HTMLInputElement>("allow-rewind");
-  rewind.checked = allowRewind;
-  rewind.addEventListener("change", () => {
-    allowRewind = rewind.checked;
-    $("draw-hint").textContent = drawHint();
-  });
-  $("draw-hint").textContent = drawHint();
   renderLeadOptions();
   $<HTMLSelectElement>("rank-lead").addEventListener("change", (e) => {
     rankLead = Number((e.target as HTMLSelectElement).value) || 0;
     renderTable();
-    renderCalibration();
+    requestRender();
   });
   const calibEl = $<HTMLDetailsElement>("calib");
   calibEl.open = calibOpen;
@@ -1318,25 +1331,23 @@ function bindControls() {
     } catch {
       /* storage unavailable */
     }
-    renderCalibration();
+    requestRender();
   });
   $<HTMLSelectElement>("rank-by").addEventListener("change", (e) => {
     rankBy = (e.target as HTMLSelectElement).value as RankBy;
     renderTable();
   });
   window.addEventListener("resize", () => followEnd(0.8, 0.7));
-  window.matchMedia?.("(prefers-color-scheme: dark)").addEventListener?.("change", () => {
-    renderLegend();
-    requestRender();
-  });
+  const resize = new ResizeObserver(requestRender);
+  [canvas, overview, $("cov-canvas"), $("width-canvas")].forEach((el) => resize.observe(el));
 }
 
-const alphaLabel = (a: number) => `${a.toFixed(2)} (target ${((1 - a) * 100).toFixed(0)}%)`;
+const alphaLabel = (a: number) => `${((1 - a) * 100).toFixed(0)}%`;
 
 /** Write the conformal settings into their controls (on start and after opening a link). */
 function syncSettingControls() {
   const s = engine.settings;
-  $<HTMLInputElement>("alpha").value = String(s.alpha);
+  $<HTMLInputElement>("alpha").value = String(Math.round((1 - s.alpha) * 100));
   $("alpha-val").textContent = alphaLabel(s.alpha);
   $<HTMLSelectElement>("score-type").value = s.scoreType;
   $<HTMLInputElement>("eval-leads").value = String(s.evalLeads);
@@ -1388,9 +1399,9 @@ async function copyLink() {
   history.replaceState(null, "", url);
   try {
     await navigator.clipboard.writeText(url);
-    toast("Link copied. Opening it restores these settings and replays the series.");
+    toast("Link copied.");
   } catch {
-    toast("The link is in the address bar; copy it from there.");
+    toast("Copy the link from the address bar.");
   }
 }
 
@@ -1513,7 +1524,9 @@ async function restoreFromHash() {
     if (!p) {
       toast(`This link uses a stream ("${ref.id}") this version does not have.`, 8000);
     } else {
-      $<HTMLSelectElement>("preset").value = p.id;
+      const select = $<HTMLSelectElement>("preset");
+      if (![...select.options].some((o) => o.value === p.id)) select.add(new Option(p.label, p.id));
+      select.value = p.id;
       playData = p.make(2000, ref.seed);
       playStopAt = Math.min(ref.n, playData.length);
       streamRef = { id: p.id, seed: ref.seed };
@@ -1535,14 +1548,25 @@ async function restoreFromHash() {
 // ---------------------------------------------------------------------------------------
 // Configuration side panel
 
-function drawHint(): string {
-  return allowRewind
-    ? "Draw a curve from left to right. Every new step is forecast; drawing back to the left rewinds."
-    : "Draw a curve from left to right. Every new step is forecast; strokes only move forward in time.";
-}
-
 function setPanel(open: boolean, persist = true) {
+  const panel = $("panel");
+  const narrow = window.matchMedia("(max-width: 900px)").matches;
+  const hadPanelFocus = panel.contains(document.activeElement);
+  const openedFromButton = document.activeElement === $("btn-panel-open");
   $("shell").classList.toggle("collapsed", !open);
+  panel.inert = !open;
+  $("btn-panel-open").setAttribute("aria-expanded", String(open));
+  $("main-col").inert = narrow && open;
+  if (narrow && open) {
+    panel.setAttribute("role", "dialog");
+    panel.setAttribute("aria-modal", "true");
+    $("btn-panel-close").focus({ preventScroll: true });
+  } else {
+    panel.removeAttribute("role");
+    panel.removeAttribute("aria-modal");
+    if (hadPanelFocus && !open) $("btn-panel-open").focus({ preventScroll: true });
+    if (open && openedFromButton) $("btn-panel-close").focus({ preventScroll: true });
+  }
   if (persist) {
     try {
       localStorage.setItem("ctimestral-panel", open ? "open" : "closed");
@@ -1550,10 +1574,9 @@ function setPanel(open: boolean, persist = true) {
       // ignore
     }
   }
-  // Canvases resize with the layout; redraw during and after the slide.
   requestRender();
-  // The plot width changes with the panel; keep the series end and forecast in view.
-  window.setTimeout(() => followEnd(0.8, 0.7), 220);
+  // The plot width changes with the panel; keep the series end in view.
+  requestAnimationFrame(() => followEnd(0.8, 0.7));
 }
 
 function initPanel() {
@@ -1568,8 +1591,29 @@ function initPanel() {
   $("btn-panel-open").addEventListener("click", () => setPanel(true));
   $("btn-panel-close").addEventListener("click", () => setPanel(false));
   $("scrim").addEventListener("click", () => setPanel(false));
+  window.matchMedia("(max-width: 900px)").addEventListener("change", (e) => setPanel(!e.matches, false));
   window.addEventListener("keydown", (e) => {
     const t = e.target as HTMLElement;
+    const panelOpen = !$("shell").classList.contains("collapsed");
+    if (e.key === "Escape" && panelOpen) {
+      setPanel(false);
+      e.preventDefault();
+      return;
+    }
+    if (e.key === "Tab" && panelOpen && window.matchMedia("(max-width: 900px)").matches) {
+      const closedSections = [...$("panel").querySelectorAll<HTMLDetailsElement>("details:not([open])")];
+      const controls = [...$("panel").querySelectorAll<HTMLElement>("button, select, input, summary, a[href]")]
+        .filter((el) => !el.matches(":disabled") && el.getClientRects().length > 0
+          && !closedSections.some((section) => section.contains(el) && section.firstElementChild !== el));
+      const first = controls[0], last = controls[controls.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        last?.focus();
+        e.preventDefault();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        first?.focus();
+        e.preventDefault();
+      }
+    }
     if (e.key !== "[" || e.metaKey || e.ctrlKey || e.altKey || ["INPUT", "SELECT", "TEXTAREA"].includes(t.tagName)) return;
     setPanel($("shell").classList.contains("collapsed"));
   });
