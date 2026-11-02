@@ -3,11 +3,11 @@
 import type { ReliabilityPoint } from "../engine/calibration";
 import { FONT, cssVar, fitCanvas, withAlpha } from "./plot";
 
-const PAD = { l: 36, r: 8, t: 8, b: 20 };
+const PAD = { l: 44, r: 8, t: 10, b: 24 };
 
 function empty(ctx: CanvasRenderingContext2D, h: number) {
   ctx.fillStyle = cssVar("--muted");
-  ctx.fillText("waiting for evaluated forecasts…", PAD.l, h / 2);
+  ctx.fillText("Awaiting forecasts", PAD.l, h / 2);
 }
 
 /** Hover text per region, kept on the canvas so the listener can read the latest state. */
