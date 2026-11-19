@@ -23,6 +23,17 @@ export interface ParamSpec {
   help?: string;
 }
 
+/**
+ * Where a method instance sits: its forecast lead (1-based) and a map shared by every lead of
+ * one engine side, for variants that pool information across leads.
+ */
+export interface MethodContext {
+  lead: number;
+  shared: Map<string, unknown>;
+}
+
+const soloContext = (): MethodContext => ({ lead: 1, shared: new Map() });
+
 export interface MethodSpec {
   id: string;
   name: string;
@@ -30,13 +41,16 @@ export interface MethodSpec {
   reference: string;
   summary: string;
   params: ParamSpec[];
-  /** "bayesian" for methods built on a probabilistic model of the score (grouped in the UI). */
-  family?: "conformal" | "bayesian";
+  /**
+   * "bayesian" for methods built on a probabilistic model of the score, "variant" for
+   * modifications of a published method that are not in the paper (grouped in the UI).
+   */
+  family?: "conformal" | "bayesian" | "variant";
   /** False for purely model-based methods without a distribution-free coverage guarantee. */
   guarantee?: boolean;
   /** Switched on in fresh settings (default true). */
   defaultOn?: boolean;
-  create(history: ScoreHistory, alpha: number, params: Record<string, number>): OnlineMethod;
+  create(history: ScoreHistory, alpha: number, params: Record<string, number>, ctx: MethodContext): OnlineMethod;
 }
 
 /** Rolling split conformal: empirical quantile of the last W scores. */
@@ -77,6 +91,45 @@ class ACI implements OnlineMethod {
     if (raw === undefined) return;
     this.pending.delete(key);
     this.alphaT += this.gamma * (this.alpha - aciErr(s, raw));
+  }
+}
+
+/** The working level shared by every lead of a `SharedACI`. */
+class SharedLevel {
+  alphaT: number;
+  /** Leads sharing the level; each feedback moves it by gamma / members. */
+  members = 0;
+  constructor(alpha: number) {
+    this.alphaT = alpha;
+  }
+}
+
+/**
+ * Variant (not in the paper): one ACI level alpha_t shared by all leads. Every lead's feedback
+ * moves it, with step gamma / (number of leads), so a shift seen at lead 1 widens all leads at
+ * once instead of each lead waiting k steps for its own misses. Each lead still takes the
+ * quantile of its own score window. The usual ACI argument bounds the shared level, so the
+ * long-run guarantee holds for coverage pooled over leads, not for each lead separately.
+ */
+class SharedACI implements OnlineMethod {
+  private level: SharedLevel;
+  private pending = new Map<number, number>();
+  constructor(private h: ScoreHistory, private alpha: number, private gamma: number, ctx: MethodContext) {
+    let level = ctx.shared.get("aci_shared") as SharedLevel | undefined;
+    if (!level) ctx.shared.set("aci_shared", (level = new SharedLevel(alpha)));
+    level.members++;
+    this.level = level;
+  }
+  predict(key: number): number {
+    const raw = this.h.conformalQuantile(1 - this.level.alphaT);
+    this.pending.set(key, raw);
+    return this.h.cap(raw);
+  }
+  update(key: number, s: number): void {
+    const raw = this.pending.get(key);
+    if (raw === undefined) return;
+    this.pending.delete(key);
+    this.level.alphaT += (this.gamma / this.level.members) * (this.alpha - aciErr(s, raw));
   }
 }
 
@@ -440,7 +493,57 @@ export const METHODS: MethodSpec[] = [
     params: [{ key: "delta", label: "Discount δ", min: 0.8, max: 0.9999, step: 0.0001, default: 0.98, help: "Keeps about 1/(1−δ) effective observations." }],
     create: (h, alpha, p) => new DiscountedBayes(h, alpha, p.delta),
   },
+  // Variants: changes to the methods above that are not in their papers. Off by default.
+  {
+    id: "aci_lead",
+    name: "ACI · lead-scaled γ",
+    color: "#FF6A00",
+    reference: "Variant of Gibbs & Candès 2021; step / delay as in online learning with delayed feedback",
+    summary: "ACI with step γ/k at lead k. Lead k learns of a miss k steps late, so paper ACI can overshoot by about kγ after a shift; dividing by k keeps the horizon smooth.",
+    family: "variant",
+    defaultOn: false,
+    params: [{ key: "gamma", label: "γ step (lead 1)", min: 0.001, max: 0.2, step: 0.001, default: 0.01 }],
+    create: (h, alpha, p, ctx) => new ACI(h, alpha, p.gamma / ctx.lead),
+  },
+  {
+    id: "aci_shared",
+    name: "ACI · shared α",
+    color: "#E0A040",
+    reference: "Variant of Gibbs & Candès 2021",
+    summary: "One ACI level α_t for all leads, moved by every lead's feedback, so a shift seen at lead 1 widens the whole horizon at once. Guarantee is for coverage pooled over leads.",
+    family: "variant",
+    defaultOn: false,
+    params: [{ key: "gamma", label: "γ step", min: 0.001, max: 0.2, step: 0.001, default: 0.01 }],
+    create: (h, alpha, p, ctx) => new SharedACI(h, alpha, p.gamma, ctx),
+  },
+  {
+    id: "dtaci_lead",
+    name: "DtACI · lead-scaled γ",
+    color: "#7A5F3E",
+    reference: "Variant of Gibbs & Candès, JMLR 2024",
+    summary: "DtACI with its γ grid divided by the lead k, for the same reason as ACI · lead-scaled γ.",
+    family: "variant",
+    defaultOn: false,
+    params: [{ key: "interval", label: "Interval I", min: 10, max: 1000, step: 10, default: 100, help: "Local-regret interval that sets η and σ." }],
+    create: (h, alpha, p, ctx) => new DtACI(h, alpha, DEFAULT_GAMMAS.map((g) => g / ctx.lead), p.interval),
+  },
+  {
+    id: "agaci_lead",
+    name: "AgACI · lead-scaled γ",
+    color: "#1F7F91",
+    reference: "Variant of Zaffran et al., ICML 2022",
+    summary: "AgACI with its γ grid divided by the lead k, for the same reason as ACI · lead-scaled γ.",
+    family: "variant",
+    defaultOn: false,
+    params: [],
+    create: (h, alpha, _p, ctx) => new AgACI(h, alpha, DEFAULT_GAMMAS.map((g) => g / ctx.lead)),
+  },
 ];
+
+/** Create a method outside an engine (tests, tools): lead 1 with nothing shared. */
+export function createSolo(spec: MethodSpec, h: ScoreHistory, alpha: number, params: Record<string, number> = defaultParams(spec)): OnlineMethod {
+  return spec.create(h, alpha, params, soloContext());
+}
 
 export function defaultParams(spec: MethodSpec): Record<string, number> {
   return Object.fromEntries(spec.params.map((p) => [p.key, p.default]));

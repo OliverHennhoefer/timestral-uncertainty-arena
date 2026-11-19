@@ -1024,7 +1024,7 @@ function applySettings(patch: Partial<Settings>) {
 function renderMethods() {
   const list = $("method-list");
   const s = engine.settings;
-  const groups: [string, string][] = [["conformal", "Conformal"], ["bayesian", "Bayesian"]];
+  const groups: [string, string][] = [["conformal", "Conformal"], ["bayesian", "Bayesian"], ["variant", "Variants (not in the papers)"]];
   const item = (m: (typeof METHODS)[number]) => `<div class="method" data-id="${m.id}">
       <label class="check-row" title="${m.summary} (${m.reference})${m.guarantee === false ? " · no distribution-free coverage guarantee" : ""}">
         <input type="checkbox" class="toggle" ${s.enabled[m.id] ? "checked" : ""} />

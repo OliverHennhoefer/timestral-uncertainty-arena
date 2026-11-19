@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { METHODS, defaultParams } from "../src/conformal/methods";
+import { METHODS, createSolo } from "../src/conformal/methods";
 import { BOCPD, BayesianBelief, DiscountedBayes, SAOCP } from "../src/conformal/extra";
 import { tCdfStd, tCdfStdBeta, tMixtureQuantile } from "../src/conformal/stats";
 import { ScoreHistory } from "../src/conformal/window";
@@ -18,7 +18,7 @@ function rng(seed: number) {
 /** Feed `scores` with feedback delayed by `delay` steps; returns coverage after `burn`. */
 function runDelayed(spec: (typeof METHODS)[number], scores: number[], delay: number, alpha = 0.1, burn = 100) {
   const h = new ScoreHistory(100);
-  const m = spec.create(h, alpha, defaultParams(spec));
+  const m = createSolo(spec, h, alpha);
   let covered = 0, n = 0;
   const qs: number[] = [];
   for (let t = 0; t < scores.length; t++) {
