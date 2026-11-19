@@ -113,6 +113,9 @@ export class Engine {
   /** Upper-side histories and methods, used only by asymmetric scores. */
   private historiesUp: ScoreHistory[] = [];
   private methodsUp: Map<string, OnlineMethod>[] = [];
+  /** State shared across the leads of one side, for methods that pool leads. */
+  private shared = new Map<string, unknown>();
+  private sharedUp = new Map<string, unknown>();
   metrics = new Map<string, MethodMetrics>();
   traceT: number[] = [];
   processedUpTo = -1;
@@ -137,6 +140,8 @@ export class Engine {
     this.methods = [];
     this.historiesUp = [];
     this.methodsUp = [];
+    this.shared = new Map();
+    this.sharedUp = new Map();
     this.metrics = new Map();
     this.traceT = [];
     this.processedUpTo = -1;
@@ -163,7 +168,8 @@ export class Engine {
       const h = new ScoreHistory(this.settings.window);
       histories.push(h);
       const m = new Map<string, OnlineMethod>();
-      for (const spec of this.activeSpecs) m.set(spec.id, spec.create(h, a, this.settings.params[spec.id] ?? defaultParams(spec)));
+      const ctx = { lead: histories.length, shared: up ? this.sharedUp : this.shared };
+      for (const spec of this.activeSpecs) m.set(spec.id, spec.create(h, a, { ...defaultParams(spec), ...this.settings.params[spec.id] }, ctx));
       methods.push(m);
     }
     return { history: histories[k - 1], methods: methods[k - 1] };

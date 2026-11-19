@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { METHODS, defaultParams } from "../src/conformal/methods";
-import { ScoreHistory, conformalQuantile } from "../src/conformal/window";
+import { METHODS, createSolo, defaultParams } from "../src/conformal/methods";
+import { ScoreHistory, aciErr, conformalQuantile } from "../src/conformal/window";
 import { Engine, NATIVE_ID, defaultSettings, quantileAt, rankRows } from "../src/engine/engine";
 import { NaiveBackend, TIMESTRAL_LEVELS, normInv } from "../src/model/backends";
+import { PRESETS } from "../src/synthetic";
 import { blockBootstrap, indistinguishable } from "../src/engine/bootstrap";
 
 function rng(seed: number) {
@@ -38,7 +39,7 @@ describe("online methods reach nominal coverage", () => {
   for (const spec of METHODS.filter((m) => m.guarantee !== false)) {
     it(spec.name, () => {
       const h = new ScoreHistory(100);
-      const m = spec.create(h, alpha, defaultParams(spec));
+      const m = createSolo(spec, h, alpha);
       let covered = 0, n = 0;
       scores.forEach((s, t) => {
         const q = m.predict(t);
@@ -113,18 +114,54 @@ describe("engine", () => {
     expect(rankRows(rows, 0.1, "validity_then_width").map((r) => r.id)).toEqual(["over", "under"]);
   });
 
-  it("methods learn from the threshold actually issued (capped)", () => {
+  it("ACI's infinite interval issues the cap but never counts as a miss", () => {
     const h = new ScoreHistory(100);
     h.push(1);
     expect(h.cap(Infinity)).toBe(1);
-    // ACI at a tiny alpha issues +inf, capped to 1; a score of 10 must count as a miss.
-    const aci = METHODS.find((m) => m.id === "aci")!.create(h, 0.01, { gamma: 0.5 });
+    // ACI at a tiny alpha issues +inf, drawn as the cap 1. A score of 10 falls outside the
+    // drawn band, but the paper's set is the whole line, so alpha_t must rise, not fall.
+    const aci = createSolo(METHODS.find((m) => m.id === "aci")!, h, 0.01, { gamma: 0.5 });
     expect(aci.predict(0)).toBe(1);
     aci.update(0, 10);
     h.push(10);
-    // After a miss alpha_t drops below 0, so the next threshold is the cap (largest score).
+    expect((aci as unknown as { alphaT: number }).alphaT).toBeCloseTo(0.01 + 0.5 * 0.01, 12);
+    // alpha_t is still below 1 / (n + 1), so the next threshold is the cap (largest score).
     expect(aci.predict(1)).toBe(10);
   });
+
+  it("aciErr reads +inf as the whole line and -inf as the empty set", () => {
+    expect(aciErr(1e9, Infinity)).toBe(0);
+    expect(aciErr(-1e9, -Infinity)).toBe(1);
+    expect(aciErr(2, 1)).toBe(1);
+    expect(aciErr(1, 1)).toBe(0);
+  });
+
+  // Record-breaking scores: every new score exceeds the cap, the worst case for a capped band.
+  const records = Array.from({ length: 300 }, (_, t) => 1.05 ** t);
+  const levels = (m: object): number[] => {
+    const o = m as { alphaT?: number; alphas?: number[] };
+    return o.alphas ?? [o.alphaT!];
+  };
+
+  for (const id of ["aci", "dtaci", "agaci", "bocpd_aci"]) {
+    it(`${id}: one-step alpha_t stays in [-gamma, 1 + gamma] (Gibbs & Candès Lemma 4.1)`, () => {
+      const spec = METHODS.find((m) => m.id === id)!;
+      const gamma = 0.05;
+      const h = new ScoreHistory(100);
+      const m = createSolo(spec, h, 0.1, { ...defaultParams(spec), gamma });
+      // DtACI and AgACI run experts over the default gamma grid.
+      const gammas = id === "dtaci" || id === "agaci" ? [0.001, 0.002, 0.004, 0.008, 0.016, 0.032, 0.064, 0.128] : [gamma];
+      for (let t = 0; t < records.length; t++) {
+        m.predict(t);
+        m.update(t, records[t]);
+        h.push(records[t]);
+        levels(m).forEach((a, i) => {
+          expect(a).toBeGreaterThanOrEqual(-gammas[i] - 1e-12);
+          expect(a).toBeLessThanOrEqual(1 + gammas[i] + 1e-12);
+        });
+      }
+    });
+  }
 
   it("per-lead tables add up to the pooled table", async () => {
     const r = rng(5);
@@ -264,5 +301,71 @@ describe("engine", () => {
     const q = Float32Array.from(TIMESTRAL_LEVELS);
     expect(quantileAt(q, 0, TIMESTRAL_LEVELS, 0.025)).toBeCloseTo(0.025, 6);
     expect(quantileAt(q, 0, TIMESTRAL_LEVELS, 0.5)).toBeCloseTo(0.5, 6);
+  });
+});
+
+describe("ACI variants", () => {
+  const spec = (id: string) => METHODS.find((m) => m.id === id)!;
+  const alphaT = (m: object) => (m as { alphaT: number }).alphaT;
+
+  it("lead-scaled ACI steps gamma / k at lead k", () => {
+    const h = new ScoreHistory(100);
+    for (let i = 1; i <= 50; i++) h.push(i);
+    const m = spec("aci_lead").create(h, 0.1, { gamma: 0.04 }, { lead: 4, shared: new Map() });
+    m.predict(0);
+    m.update(0, 1000); // a miss
+    expect(alphaT(m)).toBeCloseTo(0.1 + (0.04 / 4) * (0.1 - 1), 12);
+  });
+
+  it("shared-alpha ACI moves one level for all leads, by gamma / leads", () => {
+    const shared = new Map<string, unknown>();
+    const h1 = new ScoreHistory(100), h2 = new ScoreHistory(100);
+    for (let i = 1; i <= 50; i++) (h1.push(i), h2.push(10 * i));
+    const lead1 = spec("aci_shared").create(h1, 0.1, { gamma: 0.04 }, { lead: 1, shared });
+    const lead2 = spec("aci_shared").create(h2, 0.1, { gamma: 0.04 }, { lead: 2, shared });
+    const before = lead2.predict(0);
+    lead1.predict(0);
+    lead1.update(0, 1000); // a miss at lead 1 widens lead 2 right away
+    expect(lead2.predict(1)).toBeGreaterThan(before);
+    const level = shared.get("aci_shared") as { alphaT: number };
+    expect(level.alphaT).toBeCloseTo(0.1 + (0.04 / 2) * (0.1 - 1), 12);
+  });
+
+  it("smooth the horizon after level shifts where paper ACI spikes", async () => {
+    const ids = ["aci", "aci_lead", "aci_shared", "dtaci", "dtaci_lead", "agaci", "agaci_lead"];
+    const s = defaultSettings();
+    for (const id of ["aci", "aci_lead", "aci_shared"]) s.params[id] = { gamma: 0.05 };
+    const e = new Engine({ ...s, enabled: Object.fromEntries(ids.map((id) => [id, true])) });
+    const b = new NaiveBackend();
+    const y = PRESETS.find((p) => p.id === "levels")!.make(600, 3);
+    const jumps = new Map<string, number[]>(ids.map((id) => [id, []]));
+    for (const v of y) {
+      e.append(v);
+      e.catchUp();
+      const t = e.series.length - 1;
+      const r = await b.forecast({ context: Float64Array.from(e.series), horizon: 16, symmetric: true, clip: false, maxContext: 256 });
+      const f = e.addForecast(t, r.quantiles, r.horizon, r.levels);
+      if (t < 100) continue;
+      for (const id of ids) {
+        const w = Array.from({ length: 16 }, (_, j) => {
+          const iv = e.interval(f, j, id)!;
+          return iv[1] - iv[0];
+        });
+        const med = [...w].sort((a, c) => a - c)[8];
+        let jump = 0;
+        for (let j = 1; j < 16; j++) jump = Math.max(jump, Math.abs(w[j] - w[j - 1]));
+        jumps.get(id)!.push(jump / med);
+      }
+    }
+    // 95th percentile of the largest lead-to-lead width jump, relative to the median width.
+    const p95 = (id: string) => {
+      const a = jumps.get(id)!.sort((x, z) => x - z);
+      return a[Math.floor(a.length * 0.95)];
+    };
+    expect(p95("aci_lead")).toBeLessThan(0.5 * p95("aci"));
+    expect(p95("aci_shared")).toBeLessThan(0.5 * p95("aci"));
+    expect(p95("dtaci_lead")).toBeLessThan(p95("dtaci"));
+    expect(p95("agaci_lead")).toBeLessThanOrEqual(p95("agaci"));
+    for (const row of e.table().filter((r) => ids.includes(r.id))) expect(row.coverage, row.id).toBeGreaterThan(0.86);
   });
 });
