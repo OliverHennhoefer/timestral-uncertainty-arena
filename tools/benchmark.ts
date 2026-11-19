@@ -9,9 +9,13 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { type BenchConfig, type Forecast, type ModelInfo, benchDatasets, defaultBenchConfig, runBenchmark } from "../src/bench/benchmark";
+import { sweepSummary, textSummary } from "../src/bench/report";
+import { toCsv } from "../src/bench/summary";
+import type { BenchResult } from "../src/bench/types";
 import { NaiveBackend, ServerBackend } from "../src/model/backends";
 import { fileUrl } from "../src/model/registry";
 import { TimestralForecaster, TimestralModel } from "../src/model/timestral";
+import { diskForecastCache } from "./forecastCache";
 
 const HELP = `Usage: npm run benchmark -- [options]
 
@@ -30,6 +34,29 @@ Run
   --out <dir>           Output folder (default: benchmarks/results).
   --run <name>          File stem (default: derived from the model).
   --list                Print the dataset ids and exit.
+  --summary             Print the aggregated table and findings as text when done.
+  --report <file.json>  Print that text for an existing result file and exit.
+
+Forecast cache
+  Forecasts are stored per model and dataset in benchmarks/cache (not committed) and
+  reused whenever only alpha, the score, the window, the warm-up, the leads or method
+  parameters change. A cached set is checked against one fresh forecast before use.
+  --cache <dir>         Another cache folder.
+  --no-cache            Forecast everything again and store nothing.
+
+Sweep
+  --alpha, --window and --score take comma lists, e.g. --alpha 0.2,0.1,0.05,0.02
+  --window 100,500. More than one combination runs them all and writes, into
+  benchmarks/sweeps/<name>/, one result file per combination, summary.csv (every
+  dataset and method of every combination) and summary.txt. The leaderboard files in
+  benchmarks/results are not touched.
+  --sweep <name>        Folder name (default: the run name). Also forces sweep output
+                        for a single combination.
+
+Method parameters
+  --param aci.gamma=0.005,bocpd.lambda=100
+                        Override method parameters (ids and keys as in
+                        src/conformal/methods.ts). Recorded in the result.
 
 Settings (defaults match the app)
   --alpha 0.1 --leads 16 --score cqr|cqr_asym|abs|scaled --window 100 --warmup 10
@@ -44,11 +71,36 @@ function parseArgs(argv: string[]): Record<string, string | boolean> {
     if (!a.startsWith("--")) throw new Error(`unexpected argument ${a}`);
     const key = a.slice(2);
     if (key.startsWith("no-")) out[key.slice(3)] = false;
-    else if (i + 1 < argv.length && !argv[i + 1].startsWith("--")) out[key] = argv[++i];
+    else if (i + 1 < argv.length && !argv[i + 1].startsWith("--")) {
+      const v = argv[++i];
+      // Repeated list options add up: --param a.x=1 --param b.y=2.
+      out[key] = key === "param" && typeof out[key] === "string" ? `${out[key]},${v}` : v;
+    }
     else out[key] = true;
   }
   return out;
 }
+
+function parseParams(spec: string): Record<string, Record<string, number>> {
+  const out: Record<string, Record<string, number>> = {};
+  for (const item of spec.split(",").map((s) => s.trim()).filter(Boolean)) {
+    const m = /^([^.=]+)\.([^.=]+)=(.+)$/.exec(item);
+    if (!m || !Number.isFinite(Number(m[3]))) throw new Error(`--param expects method.key=number, got "${item}"`);
+    (out[m[1]] ??= {})[m[2]] = Number(m[3]);
+  }
+  return out;
+}
+
+function numList(v: string | boolean | undefined, fallback: number, name: string): number[] {
+  if (typeof v !== "string") return [fallback];
+  const out = v.split(",").map((s) => Number(s.trim()));
+  if (!out.length || out.some((x) => !Number.isFinite(x))) throw new Error(`--${name} expects a number or a comma list of numbers`);
+  return out;
+}
+
+/** One line per row object field, with number arrays kept on one line: diff-friendly, compact. */
+const toJson = (result: BenchResult) =>
+  JSON.stringify(result, null, 1).replace(/\[\s*([^[\]{}]*?)\s*\]/g, (_, inner: string) => `[${inner.replace(/\s*\n\s*/g, " ")}]`) + "\n";
 
 const slug = (s: string) => s.replace(/^.*\//, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 
@@ -94,14 +146,24 @@ export async function main(argv: string[]): Promise<void> {
     for (const d of benchDatasets()) console.log(`${d.id.padEnd(12)} ${d.group.padEnd(10)} ${d.label}`);
     return;
   }
+  if (typeof args.report === "string") {
+    process.stdout.write(textSummary(JSON.parse(readFileSync(resolve(args.report), "utf8")) as BenchResult));
+    return;
+  }
   const d = defaultBenchConfig();
+  const alphas = numList(args.alpha, d.alpha, "alpha");
+  const windows = numList(args.window, d.window, "window");
+  const scores = (typeof args.score === "string" ? args.score.split(",").map((s) => s.trim()) : [d.scoreType]) as BenchConfig["scoreType"][];
+  for (const a of alphas) if (!(a > 0 && a < 1)) throw new Error(`--alpha must be between 0 and 1, got ${a}`);
+  for (const sc of scores) if (!["cqr", "cqr_asym", "abs", "scaled"].includes(sc)) throw new Error(`unknown --score "${sc}"`);
+  const params = typeof args.param === "string" ? parseParams(args.param) : undefined;
   const num = (k: string, v: number) => (typeof args[k] === "string" ? Number(args[k]) : v);
   const config: BenchConfig = {
     ...d,
-    alpha: num("alpha", d.alpha),
+    alpha: alphas[0],
     evalLeads: num("leads", d.evalLeads),
-    scoreType: (typeof args.score === "string" ? args.score : d.scoreType) as BenchConfig["scoreType"],
-    window: num("window", d.window),
+    scoreType: scores[0],
+    window: windows[0],
     warmup: num("warmup", d.warmup),
     horizon: num("horizon", num("leads", d.evalLeads)),
     maxContext: num("context", d.maxContext),
@@ -110,6 +172,7 @@ export async function main(argv: string[]): Promise<void> {
     length: num("length", d.length),
     seed: num("seed", d.seed),
     bootstrap: num("bootstrap", d.bootstrap),
+    ...(params ? { params } : {}),
   };
 
   const repo = typeof args.model === "string" ? args.model : undefined;
@@ -140,8 +203,34 @@ export async function main(argv: string[]): Promise<void> {
   const known = new Set(benchDatasets().map((x) => x.id));
   for (const id of only ?? []) if (!known.has(id)) throw new Error(`unknown dataset "${id}" (see --list)`);
 
+  const cache = args.cache === false ? undefined : diskForecastCache(resolve(typeof args.cache === "string" ? args.cache : "benchmarks/cache"), `${model.backend}:${model.id}`);
+  const commit = gitCommit();
+  const log = (m: string) => console.error(m);
   console.error(`model: ${model.label}; run: ${run}`);
-  const result = await runBenchmark({ run, model, forecast, config, only, commit: gitCommit(), log: (m) => console.error(m) });
+
+  const combos = alphas.flatMap((alpha) => windows.flatMap((window) => scores.map((scoreType) => ({ alpha, window, scoreType }))));
+  if (combos.length > 1 || args.sweep) {
+    const name = typeof args.sweep === "string" ? args.sweep : run;
+    const dir = resolve(typeof args.out === "string" ? args.out : "benchmarks/sweeps", name);
+    mkdirSync(dir, { recursive: true });
+    const results: BenchResult[] = [];
+    for (const [i, c] of combos.entries()) {
+      const stem = `a${c.alpha}-w${c.window}-${c.scoreType}`;
+      console.error(`[${i + 1}/${combos.length}] alpha ${c.alpha}, window ${c.window}, score ${c.scoreType}`);
+      const result = await runBenchmark({ run: `${run}-${stem}`, model, forecast, config: { ...config, ...c }, only, commit, cache, log });
+      writeFileSync(join(dir, `${stem}.json`), toJson(result));
+      results.push(result);
+    }
+    const csv = results.map((r, i) => (i ? toCsv(r).split("\n").slice(1).join("\n") : toCsv(r))).join("");
+    writeFileSync(join(dir, "summary.csv"), csv);
+    const text = sweepSummary(results);
+    writeFileSync(join(dir, "summary.txt"), text);
+    console.error(`wrote ${combos.length} results, summary.csv and summary.txt to ${dir}`);
+    if (args.summary) process.stdout.write(text);
+    return;
+  }
+
+  const result = await runBenchmark({ run, model, forecast, config, only, commit, cache, log });
 
   // A partial run (--datasets) updates those datasets in an existing file for the same
   // model and settings, keeping the rest; anything else replaces the file.
@@ -162,8 +251,7 @@ export async function main(argv: string[]): Promise<void> {
     }
   }
   mkdirSync(dirname(path), { recursive: true });
-  // One line per row object field, with number arrays kept on one line: diff-friendly, compact.
-  const json = JSON.stringify(result, null, 1).replace(/\[\s*([^[\]{}]*?)\s*\]/g, (_, inner: string) => `[${inner.replace(/\s*\n\s*/g, " ")}]`);
-  writeFileSync(path, json + "\n");
+  writeFileSync(path, toJson(result));
   console.error(`wrote ${path}`);
+  if (args.summary) process.stdout.write(textSummary(result));
 }

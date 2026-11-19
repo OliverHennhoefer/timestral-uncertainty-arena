@@ -224,3 +224,7 @@ node_modules/
 dist/
 tests/fixtures/parity/
 tests/fixtures/bolt-parity/
+
+# Benchmark forecast cache and ad-hoc sweeps
+benchmarks/cache/
+benchmarks/sweeps/
