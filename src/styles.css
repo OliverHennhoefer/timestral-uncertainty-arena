@@ -147,8 +147,20 @@ details.inline input { margin-top: 10px; }
 .nav-btns .small-btn { padding-inline: 10px; }
 .nav-btns button.active { color: var(--ink); background: var(--fill); }
 .plot-footer { display: flex; align-items: center; justify-content: space-between; gap: 10px 20px; flex-wrap: wrap; margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line); }
-.focus-field { display: flex; align-items: center; gap: 9px; font-size: 12px; color: var(--muted); min-width: 0; }
-.focus-field select { min-height: 34px; padding-block: 6px; width: 180px; color: var(--ink); }
+/* Interval toggles: each chip shows or hides one ribbon and is its legend key. */
+.series-toggles { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; flex: 1 1 auto; }
+.chip, .chip-all { min-height: 30px; padding: 4px 11px 4px 9px; gap: 7px; border-radius: 999px; font-size: 12px; font-weight: 500; white-space: nowrap; }
+.chip { color: var(--muted); background: transparent; border-color: var(--line-strong); border-style: dashed; }
+.chip:hover { color: var(--ink); background: var(--fill); }
+.chip .swatch { width: 10px; height: 10px; border-radius: 3px; flex: none; border: 1.5px solid var(--c); background: transparent; }
+.chip.native .swatch { border-style: dashed; }
+.chip.on { color: var(--ink); background: var(--surface); border-style: solid; }
+.chip.on .swatch { background: var(--c); }
+.chip.focused { background: color-mix(in srgb, var(--c) 9%, var(--surface)); border-color: color-mix(in srgb, var(--c) 55%, var(--surface)); }
+.chip.focused { color: var(--ink); font-weight: 600; }
+.chip-all { padding-inline: 10px; color: var(--muted); background: transparent; border-color: transparent; }
+.chip-all:hover { color: var(--ink); background: var(--fill); }
+.chip-all[aria-pressed="true"] { color: var(--ink); }
 .legend { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; }
 .legend-key { display: inline-flex; align-items: center; gap: 7px; font-size: 11px; color: var(--muted); white-space: nowrap; }
 .legend-line { width: 14px; border-top: 2px solid; }
@@ -238,7 +250,7 @@ table.rank .pm { color: var(--muted); font-size: 11px; line-height: 1.25; margin
   .panel-footer { padding-block: 14px; }
   button, button.icon { min-height: 44px; }
   button.icon { width: 44px; height: 44px; }
-  select, input:not([type="range"]):not([type="checkbox"]), .focus-field select { min-height: 44px; font-size: 14px; }
+  select, input:not([type="range"]):not([type="checkbox"]) { min-height: 44px; font-size: 14px; }
   input[type="range"] { height: 32px; }
   .check-row, .method .check-row { min-height: 44px; }
   .params-box > summary { min-height: 36px; }
@@ -264,8 +276,7 @@ table.rank .pm { color: var(--muted); font-size: 11px; line-height: 1.25; margin
   #overview-canvas { flex-basis: 100%; height: 32px; }
   .nav-btns { width: 100%; justify-content: flex-end; }
   .plot-footer { margin-top: 12px; gap: 14px; }
-  .focus-field { flex: 1 1 100%; }
-  .focus-field select { width: 100%; min-width: 0; }
+  .series-toggles { flex: 1 1 100%; }
   .legend { gap: 10px 14px; }
   .chart { height: 180px; }
   .calib > summary { flex-wrap: wrap; position: relative; padding-right: 18px; gap: 3px; }

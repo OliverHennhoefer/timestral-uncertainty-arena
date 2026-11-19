@@ -4,7 +4,7 @@ Draw a time series with the mouse. [Timestral](https://huggingface.co/collection
 
 ![Timestral workspace](docs/dashboard.jpg)
 
-The light, monochrome workspace keeps the chart in focus. Pick an example, model, horizon and coverage in Settings. Rolling split CP, ACI and DtACI are compared by default; additional methods and advanced settings are collapsed. Charts show the focused method alongside the native forecast, while the comparison scores every selected method.
+The light, monochrome workspace keeps the chart in focus. Pick an example, model, horizon and coverage in Settings. Rolling split CP, ACI and DtACI are compared by default; additional methods and advanced settings are collapsed. The chips under the chart show or hide each method's interval, so several ribbons can be overlaid; the one you turned on last is in front, filled and with its misses marked, and **All** shows every enabled method at once. The coverage and width charts follow the same selection, while the comparison scores every enabled method.
 
 Use the overview to pan or resize the visible range. **Fit** resets both axes; **Latest** follows new points. With a chart focused, arrow keys pan, `+` / `−` zoom, `0` fits and `End` returns to the latest point. Drawn strokes only extend the series. **Analysis** opens per-step coverage and calibration charts.
 
@@ -12,7 +12,7 @@ A separate leaderboard (`leaderboard.html`) ranks every method on every bundled 
 
 The demo uses the built-in naive baseline. Pick a Timestral checkpoint (5M to 209M) in the settings panel to forecast with the real model.
 
-**Copy link** puts the current scenario in the URL: the drawn series (or the stream and its seed), the model, the enabled methods and their parameters, the score, α, the leads and the horizon alignment. Opening the link restores those settings and replays the series, so every forecast is issued and scored again. A Timestral checkpoint is loaded automatically if it is already in the browser cache; otherwise the page asks before downloading it.
+**Copy link** puts the current scenario in the URL: the drawn series (or the stream and its seed), the model, the enabled methods and their parameters, the intervals shown on the chart, the score, α, the leads and the horizon alignment. Opening the link restores those settings and replays the series, so every forecast is issued and scored again. A Timestral checkpoint is loaded automatically if it is already in the browser cache; otherwise the page asks before downloading it.
 
 ## Run locally
 
