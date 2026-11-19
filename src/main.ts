@@ -63,7 +63,29 @@ let rankBy: RankBy = "interval_score";
 let rankLead = 0;
 let uncCache: { key: string; at: number; len: number; value: Map<string, Uncertainty> } | null = null;
 let uncTimer = 0;
+/**
+ * Intervals drawn on the chart, oldest first. The last visible one is the focused method: it
+ * is drawn on top, its past one-step band is filled and its misses marked, and the coverage
+ * charts and analysis follow it. Disabled methods stay in the list, so re-enabling one brings
+ * its ribbon back.
+ */
+const DEFAULT_SHOWN = [NATIVE_ID, "split", "dtaci", "aci"];
+const SHOWN_KEY = "ctimestral-shown";
+let shown: string[] = (() => {
+  try {
+    const v = JSON.parse(localStorage.getItem(SHOWN_KEY) ?? "null") as unknown;
+    if (Array.isArray(v) && v.every((x) => typeof x === "string")) return v as string[];
+  } catch {
+    // ignore
+  }
+  return [...DEFAULT_SHOWN];
+})();
+/** The focused method, kept in sync with `shown` by renderLegend. */
 let focusId = "aci";
+/** Shown intervals whose method is enabled, the focused one last. */
+function visibleIds(): string[] {
+  return shown.filter((id) => id === NATIVE_ID || engine.settings.enabled[id]);
+}
 /** Show the focused method's one-step interval behind the observed series. */
 const histLead = 1;
 const MISS_COLOR = "#FF3B30";
@@ -581,11 +603,16 @@ function renderMain() {
   const first = Math.max(0, Math.floor(view.start - seriesOffset) - 1);
   const last = Math.min(n - 1, Math.ceil(view.start + w / view.pxPerStep - seriesOffset) + 1);
 
-  // Past band: the interval the focused method issued `histLead` steps ahead, drawn at the
-  // time it was about, with misses marked. One method at a time; pick it with the legend chips.
-  const fid = engine.settings.enabled[focusId] || focusId === NATIVE_ID ? focusId : NATIVE_ID;
+  // Past bands: the interval each shown method issued `histLead` steps ahead, drawn at the
+  // time it was about. The focused (last shown) method is filled with its misses marked;
+  // the others are outlined so several stay readable on top of each other.
+  const vis = visibleIds();
+  const fid = vis.length ? vis[vis.length - 1] : null;
   const k = Math.min(histLead, engine.settings.evalLeads);
-  const past = k > 0 ? engine.pastBand(fid, k, first, last) : [];
+  const pastOf = (id: string) => (k > 0 ? engine.pastBand(id, k, first, last) : []);
+  const past = fid ? pastOf(fid) : [];
+  const pastOthers = vis.slice(0, -1).map((id) => [id, pastOf(id)] as const);
+  const showNative = vis.includes(NATIVE_ID);
 
   // Latest forecast: conformal intervals over the calibrated leads; a band stops early at a
   // lead that has no threshold yet (lead k is first scored k steps after its first forecast).
@@ -596,7 +623,7 @@ function renderMain() {
   if (f) {
     const K = Math.min(f.horizon, engine.settings.evalLeads);
     let reach = 0;
-    for (const id of engine.activeSpecs.map((m) => m.id).filter((id) => id === fid)) {
+    for (const id of vis.filter((id) => id !== NATIVE_ID)) {
       const ivs: [number, number][] = [];
       for (let j = 0; j < K; j++) {
         const iv = engine.interval(f, j, id);
@@ -631,7 +658,8 @@ function renderMain() {
         e.add(FIXED_RANGE[0]);
         e.add(FIXED_RANGE[1]);
         for (const [, l, u] of past) (e.add(l), e.add(u));
-        if (f)
+        for (const [, pb] of pastOthers) for (const [, l, u] of pb) (e.add(l), e.add(u));
+        if (f && showNative)
           for (let j = 0; j < H; j++) {
             if (!onScreen(j)) continue;
             e.add(f.quantiles[j * Q + 2]);
@@ -675,7 +703,7 @@ function renderMain() {
   };
 
   const misses: [number, number][] = [];
-  if (past.length) {
+  if (fid && past.length) {
     ctx.fillStyle = withAlpha(COLORS[fid], 0.16);
     for (const [t, l, u, missed] of past) {
       const x = S(t);
@@ -683,6 +711,24 @@ function renderMain() {
       markClip(x - view.pxPerStep / 2, view.pxPerStep, l, u, COLORS[fid]);
       if (missed) misses.push([x, Y(engine.series[t])]);
     }
+  }
+  // The other shown methods' past bands as thin outlines (a gap where a forecast is missing).
+  for (const [id, pb] of pastOthers) {
+    ctx.strokeStyle = withAlpha(COLORS[id], 0.55);
+    ctx.lineWidth = 1;
+    ctx.lineJoin = "round";
+    for (const side of [1, 2] as const) {
+      ctx.beginPath();
+      let prev = -2;
+      for (const row of pb) {
+        const x = S(row[0]), y = Y(row[side]);
+        if (row[0] === prev + 1) ctx.lineTo(x, y);
+        else ctx.moveTo(x, y);
+        prev = row[0];
+      }
+      ctx.stroke();
+    }
+    for (const [t, l, u] of pb) markClip(S(t) - view.pxPerStep / 2, view.pxPerStep, l, u, COLORS[id]);
   }
 
   // Series.
@@ -711,17 +757,19 @@ function renderMain() {
       ctx.closePath();
       ctx.fill();
     };
-    band(2, Q - 3, 0.1);
-    ctx.strokeStyle = withAlpha(NATIVE_COLOR, 0.9);
-    ctx.lineWidth = 1;
-    ctx.setLineDash([3, 3]);
-    for (const arr of [f.lo, f.hi]) {
-      ctx.beginPath();
-      for (let j = 0; j < H; j++) ctx.lineTo(xAt(j), Y(arr[j]));
-      ctx.stroke();
+    if (showNative) {
+      band(2, Q - 3, 0.1);
+      ctx.strokeStyle = withAlpha(NATIVE_COLOR, 0.9);
+      ctx.lineWidth = fid === NATIVE_ID ? 1.5 : 1;
+      ctx.setLineDash([3, 3]);
+      for (const arr of [f.lo, f.hi]) {
+        ctx.beginPath();
+        for (let j = 0; j < H; j++) ctx.lineTo(xAt(j), Y(arr[j]));
+        ctx.stroke();
+      }
+      ctx.setLineDash([]);
+      for (let j = 0; j < H; j++) markClip(xAt(j) - colW / 2, colW, f.lo[j], f.hi[j], NATIVE_COLOR);
     }
-    ctx.setLineDash([]);
-    for (let j = 0; j < H; j++) markClip(xAt(j) - colW / 2, colW, f.lo[j], f.hi[j], NATIVE_COLOR);
     ctx.strokeStyle = ink;
     ctx.lineWidth = 1.25;
     ctx.setLineDash([5, 4]);
@@ -731,7 +779,8 @@ function renderMain() {
     ctx.stroke();
     ctx.setLineDash([]);
 
-    // Conformal bands.
+    // Conformal ribbons, in the order shown so the focused one lands on top. Only the focused
+    // ribbon is filled: stacked fills turn muddy, so the others are told apart by their edges.
     for (const [id, ivs] of bands) {
       const col = COLORS[id];
       if (id === fid) {
@@ -742,8 +791,8 @@ function renderMain() {
         ctx.closePath();
         ctx.fill();
       }
-      ctx.strokeStyle = id === fid ? col : withAlpha(col, 0.55);
-      ctx.lineWidth = id === fid ? 1.75 : 1;
+      ctx.strokeStyle = id === fid ? col : withAlpha(col, 0.8);
+      ctx.lineWidth = id === fid ? 1.75 : 1.25;
       for (const side of [0, 1] as const) {
         ctx.beginPath();
         ivs.forEach((iv, j) => ctx.lineTo(xAt(j), Y(iv[side])));
@@ -761,7 +810,8 @@ function renderMain() {
   }
 
   // Clipped edges last, so they sit on top. The focused method is drawn after the rest.
-  clipped.sort((a, b) => Number(a[2] === COLORS[fid]) - Number(b[2] === COLORS[fid]));
+  const fcol = fid ? COLORS[fid] : "";
+  clipped.sort((a, b) => Number(a[2] === fcol) - Number(b[2] === fcol));
   for (const [x, wd, col, top] of clipped) {
     ctx.fillStyle = col;
     ctx.fillRect(x, top ? 0 : h - EDGE, wd, EDGE);
@@ -775,13 +825,13 @@ function renderMain() {
 }
 
 function renderCharts() {
-  const ids = engine.rowIds;
   const xs = engine.traceT;
   const target = 1 - engine.settings.alpha;
   $("cov-target").textContent = `target ${(target * 100).toFixed(0)}%`;
   $("cov-target").title = `Over the last ${engine.settings.rolling} time steps (all scored leads)`;
-  // The focused method is drawn last and solid; the others recede.
-  const order = [...ids.filter((id) => id === NATIVE_ID && id !== focusId), ...ids.filter((id) => id === focusId)];
+  // The methods shown on the chart; the focused one is drawn last and solid, the others recede.
+  const vis = visibleIds();
+  const order = vis.length ? vis : [NATIVE_ID];
   const trace = (id: string, values: number[]) => ({
     color: id === focusId ? COLORS[id] : withAlpha(COLORS[id], 0.7),
     values,
@@ -974,22 +1024,62 @@ function renderTable() {
   if (activeRow) $("rank-table").querySelector<HTMLButtonElement>(`tr[data-id="${activeRow}"] button`)?.focus({ preventScroll: true });
 }
 
+function saveShown() {
+  try {
+    localStorage.setItem(SHOWN_KEY, JSON.stringify(shown));
+  } catch {
+    // ignore
+  }
+}
+
+/** Show `id` and make it the focused method (drawn on top, with its misses). */
 function setFocus(id: string) {
-  focusId = id;
+  shown = [...shown.filter((x) => x !== id), id];
+  saveShown();
+  renderLegend();
+  requestRender();
+}
+
+/** Show or hide one interval. Showing a method also focuses it. */
+function toggleShown(id: string) {
+  if (visibleIds().includes(id)) shown = shown.filter((x) => x !== id);
+  else shown = [...shown.filter((x) => x !== id), id];
+  saveShown();
+  renderLegend();
+  requestRender();
+}
+
+/** Every available interval, or back to just the focused one. */
+function toggleAllShown() {
+  const all = engine.rowIds;
+  const vis = visibleIds();
+  if (all.every((id) => vis.includes(id))) shown = [vis[vis.length - 1]];
+  else shown = [...all.filter((id) => !vis.includes(id)), ...vis];
+  saveShown();
   renderLegend();
   requestRender();
 }
 
 function renderLegend() {
-  if (focusId !== NATIVE_ID && !engine.settings.enabled[focusId]) focusId = NATIVE_ID;
-  const focus = $<HTMLSelectElement>("focus-method");
-  focus.innerHTML = `<option value="${NATIVE_ID}">${backend.modelName} native</option>` + engine.activeSpecs.map((m) => `<option value="${m.id}">${m.name}</option>`).join("");
-  focus.value = focusId;
+  const vis = visibleIds();
+  focusId = vis.length ? vis[vis.length - 1] : NATIVE_ID;
   $("method-count").textContent = String(engine.activeSpecs.length);
+  // One chip per interval: the chip toggles its ribbon and doubles as its legend key.
+  const chip = (id: string) => {
+    const on = vis.includes(id);
+    const focused = on && id === focusId;
+    const name = id === NATIVE_ID ? `${backend.modelName} native` : NAMES[id];
+    const tip = !on ? `Show ${name}` : focused ? `${name} is in front with its misses marked. Click to hide.` : `Hide ${name}`;
+    return `<button type="button" class="chip${on ? " on" : ""}${focused ? " focused" : ""}${id === NATIVE_ID ? " native" : ""}" data-id="${id}" aria-pressed="${on}" title="${tip}" style="--c:${COLORS[id]}"><i class="swatch" aria-hidden="true"></i>${name}</button>`;
+  };
+  const ids = engine.rowIds;
+  const allOn = ids.every((id) => vis.includes(id));
+  $("series-toggles").innerHTML =
+    ids.map(chip).join("") +
+    (ids.length > 2 ? `<button type="button" class="chip-all" data-all aria-pressed="${allOn}" title="${allOn ? "Show only the interval in front" : "Show every interval"}">All</button>` : "");
   $("legend").innerHTML =
     `<span class="legend-key"><i class="legend-line" style="color:var(--series)"></i>Observed</span>` +
-    `<span class="legend-key"><i class="legend-line dashed" style="color:${NATIVE_COLOR}"></i>Native</span>` +
-    (focusId === NATIVE_ID ? "" : `<span class="legend-key"><i class="legend-line" style="color:${COLORS[focusId]}"></i>${NAMES[focusId]}</span>`) +
+    `<span class="legend-key"><i class="legend-line dashed" style="color:var(--series)"></i>Median</span>` +
     `<span class="legend-key"><i class="dot" style="background:${MISS_COLOR}"></i>Misses</span>`;
 }
 
@@ -1162,7 +1252,15 @@ function bindControls() {
     const p = PRESETS.find((p) => p.id === id)!;
     preset.add(new Option(p.label, p.id));
   }
-  $("focus-method").addEventListener("change", (e) => setFocus((e.target as HTMLSelectElement).value));
+  $("series-toggles").addEventListener("click", (e) => {
+    const btn = (e.target as HTMLElement).closest<HTMLButtonElement>("button");
+    if (!btn) return;
+    if (btn.dataset.all !== undefined) toggleAllShown();
+    else if (btn.dataset.id) toggleShown(btn.dataset.id);
+    // The chips are rebuilt, so keep keyboard focus on the same one.
+    const sel = btn.dataset.all !== undefined ? "button[data-all]" : `button[data-id="${btn.dataset.id}"]`;
+    $("series-toggles").querySelector<HTMLButtonElement>(sel)?.focus({ preventScroll: true });
+  });
   $("btn-play").addEventListener("click", togglePlay);
   preset.addEventListener("change", () => {
     if (playing) togglePlay();
@@ -1373,6 +1471,7 @@ function currentScenario(): Scenario {
     rankBy,
     rankLead,
     focus: focusId,
+    shown,
   };
 }
 
@@ -1490,7 +1589,8 @@ async function restoreFromHash() {
   rankBy = s.rankBy;
   $<HTMLSelectElement>("rank-by").value = rankBy;
   rankLead = s.rankLead;
-  focusId = s.focus;
+  shown = s.shown;
+  saveShown();
   renderMethods();
   renderLeadOptions();
   applyAlign();

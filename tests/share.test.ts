@@ -17,6 +17,7 @@ function scenario(over: Partial<Scenario> = {}): Scenario {
     rankBy: "interval_score",
     rankLead: 0,
     focus: "aci",
+    shown: ["native", "aci"],
     ...over,
   };
 }
@@ -93,6 +94,20 @@ describe("scenario links", () => {
     expect(back.settings.window).toBe(10);
     expect("ghost" in back.settings.enabled).toBe(false);
     expect("ghost" in back.settings.params).toBe(false);
+  });
+
+  it("carry the overlaid intervals in order and drop unknown ones", async () => {
+    const s = scenario({ focus: "dtaci", shown: ["split", "native", "ghost", "aci", "dtaci"] });
+    const back = await decodeScenario(await encodeScenario(s), defaultSettings());
+    expect(back.shown).toEqual(["split", "native", "aci", "dtaci"]);
+  });
+
+  it("show the native fan and the focused method for links made before overlays", async () => {
+    const wire = { src: ["e"], m: ["n"], h: 64, mc: 256, sym: 1, clip: 1, al: "cut", a: 0.1, k: 16, sc: "cqr", w: 100, wu: 10, r: 100, on: ["aci", "split"], p: {}, rb: "interval_score", rl: 0, f: "split" };
+    const code = "1p" + btoa(JSON.stringify(wire)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    const back = await decodeScenario(code, defaultSettings());
+    expect(back.focus).toBe("split");
+    expect(back.shown).toEqual(["native", "split"]);
   });
 
   it("reject garbage", async () => {
