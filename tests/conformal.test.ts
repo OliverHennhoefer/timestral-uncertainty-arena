@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { METHODS, defaultParams } from "../src/conformal/methods";
-import { ScoreHistory, conformalQuantile } from "../src/conformal/window";
+import { ScoreHistory, aciErr, conformalQuantile } from "../src/conformal/window";
 import { Engine, NATIVE_ID, defaultSettings, quantileAt, rankRows } from "../src/engine/engine";
 import { NaiveBackend, TIMESTRAL_LEVELS, normInv } from "../src/model/backends";
 import { blockBootstrap, indistinguishable } from "../src/engine/bootstrap";
@@ -113,18 +113,54 @@ describe("engine", () => {
     expect(rankRows(rows, 0.1, "validity_then_width").map((r) => r.id)).toEqual(["over", "under"]);
   });
 
-  it("methods learn from the threshold actually issued (capped)", () => {
+  it("ACI's infinite interval issues the cap but never counts as a miss", () => {
     const h = new ScoreHistory(100);
     h.push(1);
     expect(h.cap(Infinity)).toBe(1);
-    // ACI at a tiny alpha issues +inf, capped to 1; a score of 10 must count as a miss.
+    // ACI at a tiny alpha issues +inf, drawn as the cap 1. A score of 10 falls outside the
+    // drawn band, but the paper's set is the whole line, so alpha_t must rise, not fall.
     const aci = METHODS.find((m) => m.id === "aci")!.create(h, 0.01, { gamma: 0.5 });
     expect(aci.predict(0)).toBe(1);
     aci.update(0, 10);
     h.push(10);
-    // After a miss alpha_t drops below 0, so the next threshold is the cap (largest score).
+    expect((aci as unknown as { alphaT: number }).alphaT).toBeCloseTo(0.01 + 0.5 * 0.01, 12);
+    // alpha_t is still below 1 / (n + 1), so the next threshold is the cap (largest score).
     expect(aci.predict(1)).toBe(10);
   });
+
+  it("aciErr reads +inf as the whole line and -inf as the empty set", () => {
+    expect(aciErr(1e9, Infinity)).toBe(0);
+    expect(aciErr(-1e9, -Infinity)).toBe(1);
+    expect(aciErr(2, 1)).toBe(1);
+    expect(aciErr(1, 1)).toBe(0);
+  });
+
+  // Record-breaking scores: every new score exceeds the cap, the worst case for a capped band.
+  const records = Array.from({ length: 300 }, (_, t) => 1.05 ** t);
+  const levels = (m: object): number[] => {
+    const o = m as { alphaT?: number; alphas?: number[] };
+    return o.alphas ?? [o.alphaT!];
+  };
+
+  for (const id of ["aci", "dtaci", "agaci", "bocpd_aci"]) {
+    it(`${id}: one-step alpha_t stays in [-gamma, 1 + gamma] (Gibbs & Candès Lemma 4.1)`, () => {
+      const spec = METHODS.find((m) => m.id === id)!;
+      const gamma = 0.05;
+      const h = new ScoreHistory(100);
+      const m = spec.create(h, 0.1, { ...defaultParams(spec), gamma });
+      // DtACI and AgACI run experts over the default gamma grid.
+      const gammas = id === "dtaci" || id === "agaci" ? [0.001, 0.002, 0.004, 0.008, 0.016, 0.032, 0.064, 0.128] : [gamma];
+      for (let t = 0; t < records.length; t++) {
+        m.predict(t);
+        m.update(t, records[t]);
+        h.push(records[t]);
+        levels(m).forEach((a, i) => {
+          expect(a).toBeGreaterThanOrEqual(-gammas[i] - 1e-12);
+          expect(a).toBeLessThanOrEqual(1 + gammas[i] + 1e-12);
+        });
+      }
+    });
+  }
 
   it("per-lead tables add up to the pooled table", async () => {
     const r = rng(5);

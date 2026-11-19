@@ -7,7 +7,7 @@
  */
 
 import type { OnlineMethod } from "./methods";
-import { ScoreHistory, pinball } from "./window";
+import { ScoreHistory, aciErr, pinball } from "./window";
 import { type StudentT, tLogPdf, tMixtureQuantile } from "./stats";
 
 // ---------------------------------------------------------------------------------------
@@ -212,7 +212,8 @@ export class BOCPDQuantile implements OnlineMethod {
  * Conformalized BOCPD: ACI (Gibbs & Candès 2021) on the level fed to the BOCPD predictive,
  * alpha_t <- alpha_t + gamma (alpha - err_t). The Bayesian model supplies the shape and the
  * changepoint resets, and ACI's long-run coverage guarantee holds for any sequence because
- * the threshold is +inf (capped) when alpha_t <= 0 and -inf when alpha_t >= 1.
+ * the set is the whole line when alpha_t <= 0 and empty when alpha_t >= 1. As in plain ACI,
+ * err_t is measured against that uncapped threshold; only the issued one is capped.
  */
 export class BOCPDACI implements OnlineMethod {
   private b: BOCPD;
@@ -223,15 +224,16 @@ export class BOCPDACI implements OnlineMethod {
     this.alphaT = alpha;
   }
   predict(key: number): number {
-    const q = this.h.cap(this.b.quantile(1 - this.alphaT));
-    this.pending.set(key, q);
-    return q;
+    const raw = this.b.quantile(1 - this.alphaT);
+    // A degenerate predictive (NaN) issues the cap; judge the miss against that.
+    this.pending.set(key, Number.isNaN(raw) ? this.h.cap(raw) : raw);
+    return this.h.cap(raw);
   }
   update(key: number, s: number): void {
-    const q = this.pending.get(key);
-    if (q !== undefined) {
+    const raw = this.pending.get(key);
+    if (raw !== undefined) {
       this.pending.delete(key);
-      this.alphaT += this.gamma * (this.alpha - (s > q ? 1 : 0));
+      this.alphaT += this.gamma * (this.alpha - aciErr(s, raw));
     }
     this.b.observe(s);
   }

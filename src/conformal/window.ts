@@ -87,6 +87,19 @@ export function removeSorted(a: number[], v: number): void {
   if (lo < a.length && a[lo] === v) a.splice(lo, 1);
 }
 
+/**
+ * ACI's miss indicator `err_t` for score `s`, given the uncapped quantile `rawQ` behind a
+ * threshold. Gibbs & Candès read `+inf` as the whole line (never a miss) and `-inf` as the
+ * empty set (always a miss); the capped stand-in drawn for those would let a record score
+ * "miss" an infinite interval. Finite quantiles are window scores, so they never exceed the
+ * cap and match the issued threshold.
+ */
+export function aciErr(s: number, rawQ: number): number {
+  if (rawQ === Infinity) return 0;
+  if (rawQ === -Infinity) return 1;
+  return s > rawQ ? 1 : 0;
+}
+
 /** Pinball (quantile) loss of predicting `q` for target `y` at level `tau`. */
 export function pinball(y: number, q: number, tau: number): number {
   const d = y - q;

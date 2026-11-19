@@ -5,7 +5,7 @@
  * once the truth is known. The engine turns `q` into an interval through the score function.
  */
 
-import { ScoreHistory, pinball } from "./window";
+import { ScoreHistory, aciErr, pinball } from "./window";
 import { BOCPDACI, BOCPDQuantile, BayesianBelief, ChangepointCP, DiscountedBayes, ECI, SAOCP, SFOGD } from "./extra";
 
 export interface OnlineMethod {
@@ -48,7 +48,19 @@ class RollingSplit implements OnlineMethod {
   update(): void {}
 }
 
-/** Adaptive Conformal Inference (Gibbs & Candès, 2021). */
+/**
+ * Adaptive Conformal Inference (Gibbs & Candès, 2021): alpha_t <- alpha_t + gamma (alpha - err_t).
+ *
+ * When alpha_t is too small for the window (the conformal quantile is +inf) the paper's set is
+ * the whole line, which cannot miss; when alpha_t >= 1 it is empty, which always misses. err_t
+ * is taken against that set, and only the threshold handed to the engine is capped (so it can
+ * be drawn). With one-step feedback this keeps alpha_t in [-gamma, 1 + gamma] (Lemma 4.1).
+ *
+ * Lead k gets its feedback k steps late, so up to k forecasts issued at the old alpha_t can
+ * miss before the first miss arrives: after a shift alpha_t can fall to about -(k - 1) gamma
+ * and the lead stays at the cap for roughly (k - 1) / alpha steps. That is the multi-step
+ * (delayed-feedback) form of ACI, not a defect, but it makes long leads spike.
+ */
 class ACI implements OnlineMethod {
   private alphaT: number;
   private pending = new Map<number, number>();
@@ -56,16 +68,15 @@ class ACI implements OnlineMethod {
     this.alphaT = alpha;
   }
   predict(key: number): number {
-    const q = this.h.cap(this.h.conformalQuantile(1 - this.alphaT));
-    this.pending.set(key, q);
-    return q;
+    const raw = this.h.conformalQuantile(1 - this.alphaT);
+    this.pending.set(key, raw);
+    return this.h.cap(raw);
   }
   update(key: number, s: number): void {
-    const q = this.pending.get(key);
-    if (q === undefined) return;
+    const raw = this.pending.get(key);
+    if (raw === undefined) return;
     this.pending.delete(key);
-    const err = s > q ? 1 : 0;
-    this.alphaT += this.gamma * (this.alpha - err);
+    this.alphaT += this.gamma * (this.alpha - aciErr(s, raw));
   }
 }
 
@@ -91,7 +102,8 @@ class DtACI implements OnlineMethod {
     this.eta = Math.sqrt(3 / interval) * Math.sqrt((Math.log(k * interval) + 2) / ((1 - alpha) ** 2 * alpha ** 3));
   }
   predict(key: number): number {
-    const qs = this.alphas.map((a) => this.h.cap(this.h.conformalQuantile(1 - a)));
+    // Experts are plain ACI: their misses are measured against the uncapped quantile.
+    const qs = this.alphas.map((a) => this.h.conformalQuantile(1 - a));
     this.pending.set(key, qs);
     let a = 0;
     for (let i = 0; i < this.alphas.length; i++) a += this.weights[i] * this.alphas[i];
@@ -115,8 +127,7 @@ class DtACI implements OnlineMethod {
     }
     for (let i = 0; i < k; i++) {
       this.weights[i] = total > 0 && Number.isFinite(total) ? (1 - this.sigma) * (this.weights[i] / total) + this.sigma / k : 1 / k;
-      const err = s > qs[i] ? 1 : 0;
-      this.alphas[i] += this.gammas[i] * (this.alpha - err);
+      this.alphas[i] += this.gammas[i] * (this.alpha - aciErr(s, qs[i]));
     }
   }
 }
@@ -130,20 +141,19 @@ class DtACI implements OnlineMethod {
 class AgACI implements OnlineMethod {
   private alphas: number[];
   private logW: number[];
-  private pending = new Map<number, number[]>();
+  /** Per issued key: the experts' capped thresholds (aggregated) and raw quantiles (for err). */
+  private pending = new Map<number, { qs: number[]; raw: number[] }>();
   private t = 0;
   constructor(private h: ScoreHistory, private alpha: number, private gammas: number[]) {
     this.alphas = gammas.map(() => alpha);
     this.logW = gammas.map(() => 0);
   }
-  private expertQ(a: number): number {
-    const q = this.h.conformalQuantile(1 - a);
-    const cap = this.h.maxAbsScore;
-    return Number.isFinite(q) ? q : q > 0 ? cap : -cap;
-  }
   predict(key: number): number {
-    const qs = this.alphas.map((a) => this.expertQ(a));
-    this.pending.set(key, qs);
+    const raw = this.alphas.map((a) => this.h.conformalQuantile(1 - a));
+    // Infinite expert bounds enter the aggregation as the largest score seen (Zaffran et al.).
+    const cap = this.h.maxAbsScore;
+    const qs = raw.map((q) => (Number.isFinite(q) ? q : q > 0 ? cap : -cap));
+    this.pending.set(key, { qs, raw });
     const mx = Math.max(...this.logW);
     let num = 0, den = 0;
     for (let i = 0; i < qs.length; i++) {
@@ -154,16 +164,16 @@ class AgACI implements OnlineMethod {
     return this.h.count === 0 ? Infinity : num / den;
   }
   update(key: number, s: number): void {
-    const qs = this.pending.get(key);
-    if (!qs) return;
+    const p = this.pending.get(key);
+    if (!p) return;
     this.pending.delete(key);
+    const { qs, raw } = p;
     this.t++;
     const scale = Math.max(this.h.recentRange(200), 1e-12);
     const eta = Math.sqrt((8 * Math.log(qs.length)) / this.t) / scale;
     for (let i = 0; i < qs.length; i++) {
       this.logW[i] -= eta * pinball(s, qs[i], 1 - this.alpha);
-      const err = s > qs[i] ? 1 : 0;
-      this.alphas[i] += this.gammas[i] * (this.alpha - err);
+      this.alphas[i] += this.gammas[i] * (this.alpha - aciErr(s, raw[i]));
     }
   }
 }
