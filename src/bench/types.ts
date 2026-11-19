@@ -27,6 +27,8 @@ export interface BenchConfig {
   bootstrap: number;
   /** Coverage tolerance for "valid" (coverage >= 1 - alpha - tolerance). */
   tolerance: number;
+  /** Method parameters that differ from the defaults, by method id. Absent for a default run. */
+  params?: Record<string, Record<string, number>>;
 }
 
 export interface ResultRow {

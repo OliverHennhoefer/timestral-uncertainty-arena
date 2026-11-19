@@ -1,7 +1,8 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { METHODS } from "../src/conformal/methods";
-import { benchDatasets, defaultBenchConfig, runBenchmark } from "../src/bench/benchmark";
+import { type ForecastCache, type StoredForecasts, benchDatasets, defaultBenchConfig, runBenchmark } from "../src/bench/benchmark";
+import { sweepSummary, textSummary } from "../src/bench/report";
 import { RESULT_SCHEMA, type BenchResult } from "../src/bench/types";
 import { aggregate, findings, toCsv } from "../src/bench/summary";
 import { DATASETS } from "../src/datasets";
@@ -45,6 +46,58 @@ describe("benchmark", () => {
     expect(res.datasets.every((d) => d.pairs === 0)).toBe(true);
     expect(findings(res).findings[0]).toContain("No evaluated pairs");
     expect(toCsv(res).trim().split("\n").length).toBeGreaterThan(1);
+  });
+
+  it("reuses cached forecasts when only scoring settings change", async () => {
+    const store = new Map<string, StoredForecasts>();
+    const cache: ForecastCache = { load: (id) => store.get(id), save: (id, _s, _c, f) => void store.set(id, f) };
+    let calls = 0;
+    const counted = (c: Float64Array, h: number) => (calls++, forecast(c, h));
+    const base = { run: "t", model: { backend: "naive", id: "naive", label: "naive" }, forecast: counted, only: ["sine"], cache };
+    const first = await runBenchmark({ ...base, config: { length: 150, bootstrap: 20 } });
+    expect(calls).toBe(150);
+    const again = await runBenchmark({ ...base, config: { length: 150, bootstrap: 20 } });
+    expect(calls).toBe(151); // one forecast to check the cached set
+    expect(again.datasets[0].rows).toEqual(first.datasets[0].rows);
+    const other = await runBenchmark({ ...base, config: { length: 150, bootstrap: 20, alpha: 0.02, window: 50 } });
+    expect(calls).toBe(152);
+    expect(other.datasets[0].rows.find((r) => r.id === "native")!.meanWidth).toBeGreaterThan(first.datasets[0].rows.find((r) => r.id === "native")!.meanWidth);
+    // A forecaster that answers differently invalidates the cached set.
+    const shifted = async (c: Float64Array, h: number) => {
+      calls++;
+      const r = await forecast(c, h);
+      return { ...r, quantiles: r.quantiles.map((v) => v + 1) };
+    };
+    await runBenchmark({ ...base, forecast: shifted, config: { length: 150, bootstrap: 20 } });
+    expect(calls).toBe(152 + 1 + 150);
+  });
+
+  it("applies and records method parameter overrides", async () => {
+    const base = { run: "t", model: { backend: "naive", id: "naive", label: "naive" }, forecast, only: ["sine"] };
+    const plain = await runBenchmark({ ...base, config: { length: 200, bootstrap: 20 } });
+    const tuned = await runBenchmark({ ...base, config: { length: 200, bootstrap: 20, params: { aci: { gamma: 0.1 } } } });
+    expect(plain.config.params).toBeUndefined();
+    expect(tuned.methods.find((m) => m.id === "aci")!.params.gamma).toBe(0.1);
+    const row = (r: typeof plain, id: string) => r.datasets[0].rows.find((x) => x.id === id)!;
+    expect(row(tuned, "aci").meanWidth).not.toBe(row(plain, "aci").meanWidth);
+    expect(row(tuned, "split").meanWidth).toBe(row(plain, "split").meanWidth);
+    expect(findings(tuned).caveats.join(" ")).toContain("aci.gamma = 0.1");
+    await expect(runBenchmark({ ...base, config: { length: 50, params: { nope: { x: 1 } } } })).rejects.toThrow(/unknown method/);
+    await expect(runBenchmark({ ...base, config: { length: 50, params: { aci: { nope: 1 } } } })).rejects.toThrow(/no parameter/);
+  });
+
+  it("writes text summaries for a run and a sweep", async () => {
+    const base = { run: "t", model: { backend: "naive", id: "naive", label: "naive" }, forecast, only: ["sine", "nile"] };
+    const a = await runBenchmark({ ...base, config: { length: 200, bootstrap: 20 } });
+    const b = await runBenchmark({ ...base, config: { length: 200, bootstrap: 20, alpha: 0.02 } });
+    const text = textSummary(a);
+    expect(text).toContain("Native interval");
+    expect(text).toContain("Findings");
+    expect(text.split("\n").filter((l) => /^\S.*\d\/2\s/.test(l))).toHaveLength(METHODS.length + 1);
+    const sweep = sweepSummary([a, b]);
+    expect(sweep).toContain("Sweep of 2 runs");
+    expect(sweep).toMatch(/\n\s*90%\s+100\s+cqr/);
+    expect(sweep).toMatch(/\n\s*98%\s+100\s+cqr/);
   });
 
   it("committed results are readable and cover the current registries", () => {

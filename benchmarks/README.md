@@ -27,6 +27,24 @@ npm run benchmark -- --server http://127.0.0.1:8765 --model mistralai/Timestral-
 
 `--datasets co2,nile` re-runs only those datasets and merges them into the existing file for the same model and settings. Each model writes its own file, named after the checkpoint (`--run` overrides it); the page offers one entry per file in its model menu.
 
+## Sweeps and reruns
+
+These options are for experiments from the command line. They do not change the app, the leaderboard page or the files in `results/`.
+
+```bash
+# every combination of the lists -> benchmarks/sweeps/tails/
+npm run benchmark -- --alpha 0.2,0.1,0.05,0.02 --window 100,250,500,1000 --sweep tails
+# other method parameters (ids and keys as in src/conformal/methods.ts)
+npm run benchmark -- --param aci.gamma=0.005,bocpd.lambda=100 --run naive-tuned --out /tmp/out
+# aggregated table, findings and caveats as text
+npm run benchmark -- --summary
+npm run benchmark -- --report benchmarks/results/naive.json
+```
+
+A sweep writes one result file per combination (same format as `results/`), `summary.csv` with every dataset and method of every combination, and `summary.txt`: one line per combination (where the native interval ranks, which method does best) followed by the table of each run. `--score` takes a list too.
+
+Forecasts are cached in `benchmarks/cache/`, one file per model, dataset and forecast settings (horizon, context, symmetric averaging, clipping). They do not depend on α, the score, the window, the warm-up, the leads or any method, so changing those reuses the stored forecasts and only the scoring runs again; with a Timestral checkpoint that turns a rerun from minutes or hours into seconds per dataset. Before a cached set is used, one forecast is computed again and compared with it, so a changed checkpoint or port is noticed and the dataset is forecast afresh. `--no-cache` switches the cache off, `--cache <dir>` moves it. `benchmarks/cache/` and `benchmarks/sweeps/` are not committed.
+
 ## Adding a dataset or method
 
 Add it to its registry (`src/datasets.ts`, `src/synthetic.ts` or `METHODS`), then run `npm run benchmark` and rebuild. Nothing in the page or the script needs editing. `tests/bench.test.ts` fails while `results/naive.json` is missing a registered dataset or method, so the naive run cannot silently fall behind; model runs may cover a subset.
