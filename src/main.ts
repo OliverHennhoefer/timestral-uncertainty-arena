@@ -59,7 +59,7 @@ let yAuto = yMode as Exclude<YMode, "manual">;
 let maxContext = 256;
 let symmetric = true;
 let clip = true;
-let rankBy: RankBy = "validity_then_width";
+let rankBy: RankBy = "valid_then_shape";
 /** 0 = pooled over all scored leads, else a single lead. */
 let rankLead = 0;
 let uncCache: { key: string; at: number; len: number; value: Map<string, Uncertainty> } | null = null;
@@ -591,6 +591,9 @@ function tick() {
 
 let renderQueued = false;
 let lastTableRender = 0;
+let lastChartRender = 0;
+/** How long the last table refresh took, in ms. */
+let tableCost = 0;
 
 function requestRender() {
   if (renderQueued) return;
@@ -600,12 +603,20 @@ function requestRender() {
     renderMain();
     renderOverview();
     const now = performance.now();
-    if (now - lastTableRender > 150) {
-      lastTableRender = now;
+    // The charts refresh every 150 ms. The table fits a margin per method and step ahead, which
+    // grows with the series, so it waits longer once one refresh takes more than 25 ms.
+    const tableEvery = Math.max(150, 6 * tableCost);
+    if (now - lastChartRender > 150) {
+      lastChartRender = now;
       renderCharts();
+    }
+    if (now - lastTableRender > tableEvery) {
+      lastTableRender = now;
+      const t0 = performance.now();
       renderTable();
+      tableCost = performance.now() - t0;
     } else {
-      setTimeout(requestRender, 160);
+      setTimeout(requestRender, Math.max(10, tableEvery - (now - lastTableRender)) + 10);
     }
   });
 }
@@ -1009,15 +1020,13 @@ function renderTable() {
   const alpha = engine.settings.alpha;
   const target = 1 - alpha;
   const unc = uncertainty();
-  const tolerance = 0.02;
-  const rows = rankRows(engine.table(rankLead || undefined), alpha, rankBy, tolerance, unc);
+  const rows = rankRows(engine.table(rankLead || undefined), alpha, rankBy, unc);
   const hasData = rows.some((r) => r.n > 0);
   $("rank-empty").classList.toggle("hidden", hasData);
   $("rank-table").classList.toggle("hidden", !hasData);
   const tpct = (v: number) => `${+(v * 100).toFixed(1)}%`;
   const criteria: Record<RankBy, string> = {
-    validity_then_width: `Coverage ≥ ${tpct(target - tolerance)}, then width`,
-    penalized: "Penalized score",
+    valid_then_shape: "Coverage test, then shape score",
     interval_score: "Interval score",
     rolling_gap: "Rolling coverage",
   };
@@ -1030,48 +1039,66 @@ function renderTable() {
     const tip = `95% interval ${(ci[0] * scale).toFixed(digits)} – ${(ci[1] * scale).toFixed(digits)}`;
     return `<span class="pm" title="${tip}"><span>+${hi.toFixed(digits)}</span><span>−${lo.toFixed(digits)}</span></span>`;
   };
-  const pct = (v: number) => (Number.isFinite(v) ? `${(v * 100).toFixed(1)}%` : "–");
+  const pct = (v: number, digits = 1) => (Number.isFinite(v) ? `${(v * 100).toFixed(digits)}%` : "–");
   const num = (v: number) => (Number.isFinite(v) ? v.toFixed(2) : "–");
   const bar = (v: number, col: string) =>
     `<span class="covbar"><span class="fill" style="width:${Number.isFinite(v) ? v * 100 : 0}%;background:${col}"></span><span class="target" style="left:${target * 100}%"></span></span>`;
+  const flag = `<span class="flag" aria-hidden="true">▾</span>`;
   // Extra columns (class "x") give way on narrow tables, except the one the ranking uses.
   const R = engine.settings.rolling;
   const cols: { label: string; tip: string; extra?: true; by?: RankBy[] }[] = [
-    { label: "Coverage", tip: `Share of values inside the interval. Target ${tpct(target)}.`, by: ["validity_then_width"] },
-    { label: "Worst window", extra: true, tip: `Lowest coverage over any ${R}-step stretch (the rolling window). Shows whether coverage holds through regime changes, not just on average.` },
-    { label: "Width", tip: "Mean interval width.", by: ["validity_then_width"] },
-    { label: `Width at ${tpct(target)}`, extra: true, tip: `Mean width after moving every bound by one shared margin, chosen in hindsight so that exactly ${tpct(target)} of the values are covered. Compares sharpness at equal coverage; a diagnostic, not a usable interval.` },
-    { label: "Interval score", tip: `Winkler interval score: width plus ${+(2 / alpha).toFixed(2)}× how far each miss lands outside. It charges a miss by its distance, not by how often misses happen.`, by: ["interval_score"] },
-    { label: "Penalized", extra: true, tip: `Interval score × miss rate / ${+alpha.toFixed(3)} when a method misses more often than ${tpct(alpha)}, e.g. ×1.37 at ${tpct(target - 0.037)} coverage. Over-coverage only costs its width.`, by: ["penalized"] },
+    { label: "Coverage", tip: `Share of values that fell inside the interval. The target is ${tpct(target)}. ▾ marks coverage that is clearly below the target, by more than noise explains.`, by: ["valid_then_shape"] },
+    { label: "Worst window", extra: true, tip: `Lowest coverage over any ${R}-step stretch. The small grey number is what a method that truly covers ${tpct(target)} would typically show here, given how this method's misses cluster. ▾ marks a stretch worse than such a method would show 19 times out of 20.` },
+    { label: "Width", tip: "Average width of the intervals the method issued, at whatever coverage it reached." },
+    { label: `Width at ${tpct(target)}`, extra: true, tip: `Average width after stretching or shrinking the intervals, in hindsight, until they cover exactly ${tpct(target)}. Compares methods at equal coverage. Each step ahead gets its own adjustment.` },
+    { label: "Interval score", tip: `Width plus a penalty for every miss: ${+(2 / alpha).toFixed(2)}× how far the value landed outside. Lower is better. A miss is charged by its distance, not by how often misses happen, so a too-narrow interval can still score well.`, by: ["interval_score"] },
+    { label: "Shape score", tip: "The interval score after a free fix: all intervals are stretched or shrunk by the same amount, in hindsight, until the score is as low as it can get. It shows how good the intervals are once their overall width is right. Lower is better. Each step ahead gets its own amount.", by: ["valid_then_shape"] },
+    { label: "Level cost", extra: true, tip: "How much that free fix helped, as a share of the interval score. 0% means the overall width was already right. A large value means the intervals were too narrow or too wide overall." },
   ];
   const cls = (i: number, more: string[] = []) => {
     const by = !!cols[i].by?.includes(rankBy);
     const c = [cols[i].extra && !by ? "x" : "", by ? "by" : "", ...more].filter(Boolean);
     return c.length ? ` class="${c.join(" ")}"` : "";
   };
+  const head = `<tr><th scope="col">#</th><th scope="col">Method</th>${cols
+    .map((c, i) => `<th scope="col"${cls(i)}><span class="th-label">${c.label}<button class="help" aria-label="About ${c.label.toLowerCase()}" data-tip="${c.tip}">?</button></span></th>`)
+    .join("")}</tr>`;
   const html = [
-    `<thead><tr><th scope="col">#</th><th scope="col">Method</th>${cols.map((c, i) => `<th scope="col"${cls(i)} title="${c.tip}">${c.label}</th>`).join("")}</tr></thead><tbody>`,
     ...rows.map((r, i) => {
-      const off = Number.isFinite(r.coverage) && Math.abs(r.coverage - target) > 0.05 ? ["off"] : [];
       const u = unc.get(r.id);
       const tip = `Rolling coverage ${pct(r.rollingCoverage)} · ${r.n} pairs${r.tied ? " · tied with the row above" : ""}`;
-      const factor = Number.isFinite(r.coverage) ? Math.max(1, (1 - r.coverage) / alpha) : NaN;
-      const ptip = factor > 1 ? ` title="×${factor.toFixed(2)}: misses ${pct(1 - r.coverage)} of the time, target ${tpct(alpha)}"` : "";
-      const td = (j: number, body: string, attrs = "") => `<td${cls(j, j === 0 ? off : [])}${attrs}>${body}</td>`;
+      const td = (j: number, body: string, more: string[] = [], attrs = "") => `<td${cls(j, more)}${attrs}>${body}</td>`;
+      const covTip = r.under && u ? ` title="Significantly under the ${tpct(target)} target: 95% interval ${pct(u.coverage[0])} – ${pct(u.coverage[1])}"` : "";
+      const ref = u?.worstWindow;
+      const low = !!ref && Number.isFinite(r.worstCoverage) && r.worstCoverage < ref.low;
+      const worstTip = ref && Number.isFinite(r.worstCoverage)
+        ? ` title="A method at the ${tpct(target)} target with this row's miss pattern would typically show ${pct(ref.typical)}, and less than ${pct(ref.low)} one time in twenty.${low ? " This row is below that." : ""}"`
+        : "";
+      const share = r.intervalScore > 0 ? r.levelCost / r.intervalScore : NaN;
+      const levelTip = Number.isFinite(share) ? ` title="${num(r.levelCost)} of the interval score of ${num(r.intervalScore)}"` : "";
       return `<tr class="${i === 0 && r.n > 0 ? "first" : ""}${r.id === focusId ? " focus" : ""}${r.tied ? " tied" : ""}" data-id="${r.id}" title="${tip}">
         <td>${r.n ? r.rank : "–"}</td>
         <td><button class="rank-method" aria-pressed="${r.id === focusId}" aria-label="Focus ${NAMES[r.id]}"><span class="dot" style="background:${COLORS[r.id]}"></span>${NAMES[r.id]}</button></td>
-        ${td(0, `${bar(r.coverage, COLORS[r.id])}${pct(r.coverage)}${pm(r.coverage, u?.coverage, 100, 1)}`)}
-        ${td(1, pct(r.worstCoverage))}
+        ${td(0, `${bar(r.coverage, COLORS[r.id])}${r.under ? flag : ""}${pct(r.coverage)}${pm(r.coverage, u?.coverage, 100, 1)}`, r.under ? ["under"] : [], covTip)}
+        ${td(1, `${low ? flag : ""}${pct(r.worstCoverage)}${ref && Number.isFinite(r.worstCoverage) ? `<span class="ref">${pct(ref.typical, 0)}</span>` : ""}`, low ? ["under"] : [], worstTip)}
         ${td(2, num(r.meanWidth))}
         ${td(3, num(r.widthAtTarget))}
         ${td(4, `${num(r.intervalScore)}${pm(r.intervalScore, u?.intervalScore)}`)}
-        ${td(5, `${num(r.penalizedScore)}${pm(r.penalizedScore, u?.penalizedScore)}`, ptip)}</tr>`;
+        ${td(5, `${num(r.shapeScore)}${pm(r.shapeScore, u?.shapeScore)}`)}
+        ${td(6, pct(share), [], levelTip)}</tr>`;
     }),
   ];
+  const table = $<HTMLTableElement>("rank-table");
+  // The header is rebuilt only when it changes, so an open "?" popover survives the refreshes.
+  if (table.tHead?.dataset.html !== head) {
+    table.innerHTML = `<thead></thead><tbody></tbody>`;
+    table.tHead!.innerHTML = head;
+    table.tHead!.dataset.html = head;
+    initHelp(table.tHead!);
+  }
   const activeRow = document.activeElement?.closest<HTMLElement>("#rank-table tr[data-id]")?.dataset.id;
-  $("rank-table").innerHTML = html.join("") + "</tbody>";
-  if (activeRow) $("rank-table").querySelector<HTMLButtonElement>(`tr[data-id="${activeRow}"] button`)?.focus({ preventScroll: true });
+  table.tBodies[0].innerHTML = html.join("");
+  if (activeRow) table.querySelector<HTMLButtonElement>(`tr[data-id="${activeRow}"] button`)?.focus({ preventScroll: true });
 }
 
 function saveShown() {

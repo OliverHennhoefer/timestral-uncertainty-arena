@@ -1,17 +1,23 @@
 import { describe, expect, it } from "vitest";
 import { METHODS, createSolo, defaultParams } from "../src/conformal/methods";
 import { ScoreHistory, aciErr, conformalQuantile } from "../src/conformal/window";
-import { Engine, type MetricsRow, NATIVE_ID, defaultSettings, penalizedScore, quantileAt, rankRows, widthAtTarget, worstWindowCoverage } from "../src/engine/engine";
+import { Engine, type MetricsRow, NATIVE_ID, bestMargin, defaultSettings, quantileAt, rankRows, shapeScore, shiftedScore, widthAtTarget, worstWindowCoverage } from "../src/engine/engine";
 import { NaiveBackend, TIMESTRAL_LEVELS, normInv } from "../src/model/backends";
 import { PRESETS } from "../src/synthetic";
-import { blockBootstrap, indistinguishable } from "../src/engine/bootstrap";
+import { type Uncertainty, blockBootstrap, indistinguishable, mulberry32 } from "../src/engine/bootstrap";
 
 /** A metrics row with only the fields the ranking reads. */
-function row(id: string, coverage: number, width: number, intervalScore: number): MetricsRow {
+function row(id: string, coverage: number, width: number, intervalScore: number, shape = intervalScore): MetricsRow {
   return {
     id, n: 10, coverage, rollingCoverage: coverage, meanWidth: width, rollingWidth: width, intervalScore,
-    penalizedScore: penalizedScore(intervalScore, coverage, 0.1), widthAtTarget: width, worstCoverage: coverage,
+    shapeScore: shape, levelCost: intervalScore - shape, widthAtTarget: width, worstCoverage: coverage,
   };
+}
+
+/** Bootstrap output with only the coverage interval the ranking's coverage test reads. */
+function coverageIntervals(ci: Record<string, [number, number]>): Map<string, Uncertainty> {
+  const empty = new Float64Array(0);
+  return new Map(Object.entries(ci).map(([id, coverage]) => [id, { coverage, width: [0, 0], intervalScore: [0, 0], scoreSamples: empty, coverageSamples: empty }]));
 }
 
 function rng(seed: number) {
@@ -104,37 +110,83 @@ describe("engine", () => {
     expect([...a.forecasts.keys()].every((o) => o < 120)).toBe(true);
   });
 
-  it("ranks by interval score and by validity", () => {
-    const rows = [row("a", 0.9, 2, 3), row("b", 0.7, 1, 5), row("c", 0.95, 4, 4)];
+  it("ranks by interval score, or by shape score among rows that pass the coverage test", () => {
+    const rows = [row("a", 0.9, 2, 3, 2.9), row("b", 0.7, 1, 5, 2), row("c", 0.95, 4, 4, 2.5)];
     expect(rankRows(rows, 0.1, "interval_score").map((r) => r.id)).toEqual(["a", "c", "b"]);
-    expect(rankRows(rows, 0.1, "validity_then_width", 0.06).map((r) => r.id)).toEqual(["a", "c", "b"]);
+    // Without bootstrap intervals nothing can be called significantly under target.
+    expect(rankRows(rows, 0.1, "valid_then_shape").map((r) => r.id)).toEqual(["b", "c", "a"]);
+    const unc = coverageIntervals({ a: [0.87, 0.93], b: [0.65, 0.75], c: [0.92, 0.97] });
+    const ranked = rankRows(rows, 0.1, "valid_then_shape", unc);
+    expect(ranked.map((r) => r.id)).toEqual(["c", "a", "b"]);
+    expect(ranked.map((r) => r.under)).toEqual([false, false, true]);
   });
 
-  it("validity-first ranking treats over-coverage as valid", () => {
-    const rows = [row("under", 0.85, 1, 1), row("over", 1, 5, 5)];
-    expect(rankRows(rows, 0.1, "validity_then_width").map((r) => r.id)).toEqual(["over", "under"]);
-  });
-
-  it("the penalized score charges a narrow interval for missing too often", () => {
+  it("the coverage test is about significance, not a fixed tolerance", () => {
     // 86.3% coverage at width 8.04 beats 89.7% at 9.20 on the interval score alone.
-    const rows = [row("narrow", 0.863, 8.04, 10.2), row("calibrated", 0.897, 9.2, 10.6)];
+    const rows = [row("narrow", 0.863, 8.04, 10.2, 10.0), row("calibrated", 0.897, 9.2, 10.6, 10.5)];
     expect(rankRows(rows, 0.1, "interval_score").map((r) => r.id)).toEqual(["narrow", "calibrated"]);
-    expect(rankRows(rows, 0.1, "penalized").map((r) => r.id)).toEqual(["calibrated", "narrow"]);
-    expect(rankRows(rows, 0.1, "validity_then_width").map((r) => r.id)).toEqual(["calibrated", "narrow"]);
-    // Missing 13.7% instead of 10% multiplies the score by 1.37; over-coverage is never penalized.
-    expect(penalizedScore(10, 0.863, 0.1)).toBeCloseTo(13.7, 10);
-    expect(penalizedScore(10, 0.95, 0.1)).toBe(10);
+    // On a long series 86.3% is significantly under 90%, and the narrow interval ranks last.
+    const long = coverageIntervals({ narrow: [0.845, 0.88], calibrated: [0.88, 0.914] });
+    expect(rankRows(rows, 0.1, "valid_then_shape", long).map((r) => r.id)).toEqual(["calibrated", "narrow"]);
+    // On a short one the same 86.3% is within noise of the target, and the better shape wins.
+    const short = coverageIntervals({ narrow: [0.8, 0.92], calibrated: [0.84, 0.95] });
+    expect(rankRows(rows, 0.1, "valid_then_shape", short).map((r) => r.id)).toEqual(["narrow", "calibrated"]);
+    // Rows that fail the test are ordered by their shortfall, whatever their shape score.
+    const both = coverageIntervals({ narrow: [0.845, 0.88], calibrated: [0.88, 0.899] });
+    expect(rankRows(rows, 0.1, "valid_then_shape", both).map((r) => r.id)).toEqual(["calibrated", "narrow"]);
   });
 
-  it("width at target widens or narrows every interval by one margin until the target is covered", () => {
-    // Ten unit-width intervals; values land 0.5 outside on two of them (80% coverage).
-    const excess = [-0.5, -0.4, -0.3, -0.2, -0.1, -0.1, -0.2, -0.3, 0.5, 0.5];
-    const width = new Array(10).fill(1);
-    expect(widthAtTarget([{ excess, width }], 0.8)).toBeCloseTo(1 - 0.2, 10);
-    expect(widthAtTarget([{ excess, width }], 0.9)).toBeCloseTo(2, 10);
-    // Split across leads, the pairs pool.
-    expect(widthAtTarget([{ excess: excess.slice(0, 4), width: width.slice(0, 4) }, { excess: excess.slice(4), width: width.slice(4) }], 0.9)).toBeCloseTo(2, 10);
-    expect(widthAtTarget([{ excess: [], width: [] }], 0.9)).toBeNaN();
+  /** Ten unit-width intervals; values land 0.5 above two of them (80% coverage). */
+  const tenPairs = () => {
+    const above = [-0.5, -0.4, -0.3, -0.2, -0.1, -0.1, -0.2, -0.3, 0.5, 0.5];
+    return { above, below: above.map((a) => -1 - a) };
+  };
+
+  it("shape score moves both bounds by the margin that minimises the interval score", () => {
+    const p = tenPairs();
+    const raw = (alpha: number) => p.above.reduce((s, a, i) => s + shiftedScore(p.below[i], a, 0, alpha), 0) / 10;
+    // At an 80% target the level is already right: no margin lowers the score.
+    expect(raw(0.2)).toBeCloseTo(1 + (2 / 0.2) * 0.5 * 0.2, 10);
+    expect(shapeScore([p], 0.2)).toBeCloseTo(raw(0.2), 10);
+    // At a 90% target the two misses cost 20 x 0.5 each. Widening by 0.5 covers them: width 2.
+    expect(raw(0.1)).toBeCloseTo(3, 10);
+    expect(bestMargin(p.below, p.above, 0.1)).toBeCloseTo(0.5, 10);
+    expect(shapeScore([p], 0.1)).toBeCloseTo(2, 10);
+    // Each lead gets its own margin, so a second lead that needs none keeps its score.
+    const fine = { below: [-0.5, -0.5], above: [-0.5, -0.5] };
+    expect(shapeScore([p, fine], 0.1)).toBeLessThan((10 * 2 + 2 * 1) / 12 + 1e-9);
+    expect(shapeScore([{ below: [], above: [] }], 0.1)).toBeNaN();
+  });
+
+  it("the fitted margin is the exact minimum, also with empty intervals", () => {
+    const r = mulberry32(3);
+    for (let rep = 0; rep < 120; rep++) {
+      const n = 5 + Math.floor(r() * 120), alpha = [0.02, 0.1, 0.2, 0.5][rep % 4];
+      const below: number[] = [], above: number[] = [];
+      for (let i = 0; i < n; i++) {
+        // Every third case has bounds that cross (negative width), as some online methods issue.
+        const w = rep % 3 === 0 ? (r() - 0.2) * 3 : 0.5 + r() * 3;
+        const y = normInv(r()) * (rep % 5 === 0 ? 0.3 : 1.5);
+        below.push(-w / 2 - y);
+        above.push(y - w / 2);
+      }
+      const total = (m: number) => below.reduce((s, b, i) => s + shiftedScore(b, above[i], m, alpha), 0);
+      // The score is piecewise linear in the margin, so its minimum is at one of the breakpoints.
+      let best = Infinity;
+      for (let i = 0; i < n; i++) for (const m of [below[i], above[i], (below[i] + above[i]) / 2]) best = Math.min(best, total(m));
+      expect(total(bestMargin(below, above, alpha))).toBeCloseTo(best, 8);
+    }
+  });
+
+  it("width at target widens or narrows every interval by one margin per lead until the target is covered", () => {
+    const p = tenPairs();
+    expect(widthAtTarget([p], 0.8)).toBeCloseTo(1 - 0.2, 10);
+    expect(widthAtTarget([p], 0.9)).toBeCloseTo(2, 10);
+    // Split across two leads, each is brought to the target with its own margin: the first
+    // (all inside) narrows to 0.6, the second (two misses in six) widens to 2.
+    const part = (from: number, to: number) => ({ below: p.below.slice(from, to), above: p.above.slice(from, to) });
+    expect(widthAtTarget([part(0, 4), part(4, 10)], 0.9)).toBeCloseTo((4 * 0.6 + 6 * 2) / 10, 10);
+    expect(widthAtTarget([{ below: [], above: [] }], 0.9)).toBeNaN();
   });
 
   it("worst window coverage only counts full windows", () => {
@@ -153,14 +205,50 @@ describe("engine", () => {
     const e = new Engine({ ...defaultSettings(), evalLeads: 4, rolling: 50 });
     await run(e, y, 4);
     for (const row of [...e.table(), ...e.table(2)]) {
-      expect(row.penalizedScore).toBeGreaterThanOrEqual(row.intervalScore);
+      expect(row.shapeScore).toBeLessThanOrEqual(row.intervalScore + 1e-9);
+      expect(row.levelCost).toBeCloseTo(row.intervalScore - row.shapeScore, 9);
       expect(row.worstCoverage).toBeLessThanOrEqual(row.coverage);
       expect(Number.isFinite(row.widthAtTarget)).toBe(true);
     }
-    const u = e.uncertainty();
-    const [lo, hi] = u.get(NATIVE_ID)!.penalizedScore!;
-    expect(lo).toBeLessThanOrEqual(hi);
-    expect(rankRows(e.table(), 0.1, "penalized", 0.02, u)[0].rank).toBe(1);
+    // The pooled shape score is the pair-weighted mean of the per-lead ones.
+    const pooled = e.table().find((x) => x.id === NATIVE_ID)!;
+    const perLead = [1, 2, 3, 4].map((k) => e.table(k).find((x) => x.id === NATIVE_ID)!);
+    expect(pooled.shapeScore).toBeCloseTo(perLead.reduce((s, x) => s + x.shapeScore * x.n, 0) / pooled.n, 9);
+    // A second call reuses the cached fits and gives the same rows.
+    expect(e.table()).toEqual(e.table());
+    for (const u of [e.uncertainty(), e.uncertainty(2)]) {
+      const n = u.get(NATIVE_ID)!;
+      expect(n.shapeScore![0]).toBeLessThanOrEqual(n.shapeScore![1]);
+      expect(n.shapeSamples).toHaveLength(n.scoreSamples.length);
+      expect(n.worstWindow!.low).toBeLessThanOrEqual(n.worstWindow!.typical);
+      expect(n.worstWindow!.typical).toBeLessThanOrEqual(0.9);
+    }
+    expect(rankRows(e.table(), 0.1, "valid_then_shape", e.uncertainty())[0].rank).toBe(1);
+  });
+
+  it("the worst-window reference matches what independent misses at the target show", () => {
+    // 2,000 steps with a 10% miss rate: the worst of the 100-step windows is typically 82%,
+    // and under 79% in about one run in twenty (simulated separately with 4,000 runs).
+    const r = mulberry32(21);
+    const T = 2000;
+    let typical = 0, low = 0;
+    const runs = 20;
+    for (let i = 0; i < runs; i++) {
+      const cov = Array.from({ length: T }, () => (r() < 0.9 ? 1 : 0));
+      const ones = new Array(T).fill(1);
+      const u = blockBootstrap(new Map([["a", { n: ones, cov, width: ones, is: ones }]]), T, 26, 300, 100 + i, 100).get("a")!;
+      const [median, q95] = u.worstDrop!;
+      typical += (0.9 - median) / runs;
+      low += (0.9 - q95) / runs;
+    }
+    expect(typical).toBeGreaterThan(0.81);
+    expect(typical).toBeLessThan(0.835);
+    expect(low).toBeGreaterThan(0.775);
+    expect(low).toBeLessThan(0.805);
+    // No window length, or one longer than the series: no reference.
+    const ones = new Array(50).fill(1);
+    expect(blockBootstrap(new Map([["a", { n: ones, cov: ones, width: ones, is: ones }]]), 50, 5, 50).get("a")!.worstDrop).toBeUndefined();
+    expect(blockBootstrap(new Map([["a", { n: ones, cov: ones, width: ones, is: ones }]]), 50, 5, 50, 1, 80).get("a")!.worstDrop).toBeUndefined();
   });
 
   it("ACI's infinite interval issues the cap but never counts as a miss", () => {
@@ -287,7 +375,7 @@ describe("engine", () => {
     const y = Array.from({ length: 300 }, () => normInv(r()));
     const e = new Engine({ ...defaultSettings(), evalLeads: 4 });
     await run(e, y, 4);
-    const ranked = rankRows(e.table(), 0.1, "interval_score", 0.02, e.uncertainty());
+    const ranked = rankRows(e.table(), 0.1, "interval_score", e.uncertainty());
     expect(ranked[0].rank).toBe(1);
     for (const row of ranked) if (row.tied) expect(row.rank).toBeLessThan(ranked.indexOf(row) + 1);
     // Several online methods are statistically indistinguishable on iid noise.

@@ -149,7 +149,8 @@ export function scoreSeries(series: number[], stored: StoredForecasts, cfg: Benc
   }
   engine.replay();
   const unc = engine.uncertainty(undefined, cfg.bootstrap);
-  const ranked = rankRows(engine.table(), cfg.alpha, "interval_score", cfg.tolerance, unc);
+  const ranked = rankRows(engine.table(), cfg.alpha, "interval_score", unc);
+  const target = 1 - cfg.alpha;
   const native = ranked.find((r) => r.id === NATIVE_ID)!;
   const nativeSamples = unc.get(NATIVE_ID)?.scoreSamples;
   const rows = ranked.map((r): ResultRow => {
@@ -163,7 +164,7 @@ export function scoreSeries(series: number[], stored: StoredForecasts, cfg: Benc
       n: r.n,
       coverage: round(r.coverage),
       gap: round(r.gap),
-      valid: r.valid,
+      valid: r.coverage >= target - cfg.tolerance,
       meanWidth: round(r.meanWidth),
       intervalScore: round(r.intervalScore),
       rank: r.rank,
