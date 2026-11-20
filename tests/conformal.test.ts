@@ -36,7 +36,7 @@ describe("online methods reach nominal coverage", () => {
   const r = rng(7);
   const scores = Array.from({ length: 4000 }, (_, t) => Math.abs(normInv(r())) * (t < 2000 ? 1 : 3));
   // Purely model-based methods have no such guarantee (see tests/extra.test.ts).
-  for (const spec of METHODS.filter((m) => m.guarantee !== false)) {
+  for (const spec of METHODS.filter((m) => m.guarantee !== false && !m.quantile)) {
     it(spec.name, () => {
       const h = new ScoreHistory(100);
       const m = createSolo(spec, h, alpha);

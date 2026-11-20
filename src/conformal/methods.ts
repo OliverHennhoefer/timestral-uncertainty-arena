@@ -6,6 +6,7 @@
  */
 
 import { ScoreHistory, aciErr, pinball } from "./window";
+import { MultiQT, type QuantileMethod } from "./multiqt";
 import { BOCPDACI, BOCPDQuantile, BayesianBelief, ChangepointCP, DiscountedBayes, ECI, SAOCP, SFOGD } from "./extra";
 
 export interface OnlineMethod {
@@ -51,7 +52,16 @@ export interface MethodSpec {
   /** Switched on in fresh settings (default true). */
   defaultOn?: boolean;
   create(history: ScoreHistory, alpha: number, params: Record<string, number>, ctx: MethodContext): OnlineMethod;
+  /**
+   * Set for quantile-level methods (see multiqt.ts): they recalibrate the model's whole
+   * quantile vector per lead instead of a scalar threshold, and `create` is never called.
+   */
+  quantile?(levels: readonly number[], params: Record<string, number>, ctx: MethodContext): QuantileMethod;
 }
+
+const notScalar = (): never => {
+  throw new Error("quantile-level method: use spec.quantile");
+};
 
 /** Rolling split conformal: empirical quantile of the last W scores. */
 class RollingSplit implements OnlineMethod {
@@ -492,6 +502,17 @@ export const METHODS: MethodSpec[] = [
     guarantee: false,
     params: [{ key: "delta", label: "Discount δ", min: 0.8, max: 0.9999, step: 0.0001, default: 0.98, help: "Keeps about 1/(1−δ) effective observations." }],
     create: (h, alpha, p) => new DiscountedBayes(h, alpha, p.delta),
+  },
+  {
+    id: "multiqt",
+    name: "MultiQT",
+    color: "#1D9A6C",
+    reference: "Ding, Gibbs & Tibshirani, arXiv:2512.23671 (2025)",
+    summary: "Quantile tracker on every quantile level of the model at once: each level gets an offset θ ← θ − η(1{y ≤ q} − level), and the shifted quantiles are projected back to a non-crossing order. Works on the quantiles directly, so the score and window settings do not apply.",
+    defaultOn: false,
+    params: [{ key: "lr", label: "Learning rate", min: 0.01, max: 1, step: 0.01, default: 0.1, help: "Step as a fraction of the 90% quantile of the model's recent absolute quantile errors (paper: 0.1, floored at 0.1)." }],
+    create: notScalar,
+    quantile: (levels, p) => new MultiQT(levels, p.lr),
   },
   // Variants: changes to the methods above that are not in their papers. Off by default.
   {
