@@ -11,6 +11,7 @@
  */
 
 import { METHODS, type MethodSpec, type OnlineMethod, defaultParams } from "../conformal/methods";
+import type { QuantileMethod } from "../conformal/multiqt";
 import { ScoreHistory } from "../conformal/window";
 import { type ArrivalSeries, type Uncertainty, blockBootstrap, indistinguishable } from "./bootstrap";
 
@@ -34,6 +35,7 @@ export interface Settings {
 
 export const NATIVE_ID = "native";
 export const NATIVE_COLOR = "#8E8E93";
+const QUANTILE_IDS = new Set(METHODS.filter((m) => m.quantile).map((m) => m.id));
 
 export function defaultSettings(): Settings {
   return {
@@ -60,7 +62,10 @@ export interface StoredForecast {
   hi: Float64Array;
   /** Threshold issued per method id, per lead (index k - 1); NaN where not issued. */
   thresholds: Map<string, Float64Array>;
-  /** Upper-side thresholds for asymmetric scores (`thresholds` then holds the lower side). */
+  /**
+   * Upper-side thresholds for asymmetric scores (`thresholds` then holds the lower side). For
+   * quantile-level methods the two maps hold the interval's lower and upper bound themselves.
+   */
   thresholdsUp: Map<string, Float64Array>;
   /** Whether lead k - 1 was past warm-up when issued (counts toward metrics). */
   evaluated: Uint8Array;
@@ -94,7 +99,7 @@ export interface MetricsRow {
 }
 
 /** Linear interpolation of a quantile vector at probability `p`. */
-export function quantileAt(q: Float32Array, offset: number, levels: number[], p: number): number {
+export function quantileAt(q: ArrayLike<number>, offset: number, levels: number[], p: number): number {
   const Q = levels.length;
   if (p <= levels[0]) return q[offset];
   if (p >= levels[Q - 1]) return q[offset + Q - 1];
@@ -116,6 +121,8 @@ export class Engine {
   /** State shared across the leads of one side, for methods that pool leads. */
   private shared = new Map<string, unknown>();
   private sharedUp = new Map<string, unknown>();
+  /** Quantile-level methods per lead, created at the first forecast (they need its levels). */
+  private quantileMethods: Map<string, QuantileMethod>[] = [];
   metrics = new Map<string, MethodMetrics>();
   traceT: number[] = [];
   processedUpTo = -1;
@@ -131,6 +138,11 @@ export class Engine {
     return METHODS.filter((m) => this.settings.enabled[m.id]);
   }
 
+  /** Methods that calibrate a scalar threshold on the score. */
+  private get scalarSpecs(): MethodSpec[] {
+    return this.activeSpecs.filter((m) => !m.quantile);
+  }
+
   get rowIds(): string[] {
     return [NATIVE_ID, ...this.activeSpecs.map((m) => m.id)];
   }
@@ -142,6 +154,7 @@ export class Engine {
     this.methodsUp = [];
     this.shared = new Map();
     this.sharedUp = new Map();
+    this.quantileMethods = [];
     this.metrics = new Map();
     this.traceT = [];
     this.processedUpTo = -1;
@@ -169,10 +182,23 @@ export class Engine {
       histories.push(h);
       const m = new Map<string, OnlineMethod>();
       const ctx = { lead: histories.length, shared: up ? this.sharedUp : this.shared };
-      for (const spec of this.activeSpecs) m.set(spec.id, spec.create(h, a, { ...defaultParams(spec), ...this.settings.params[spec.id] }, ctx));
+      for (const spec of this.scalarSpecs) m.set(spec.id, spec.create(h, a, { ...defaultParams(spec), ...this.settings.params[spec.id] }, ctx));
       methods.push(m);
     }
     return { history: histories[k - 1], methods: methods[k - 1] };
+  }
+
+  /** Quantile-level methods of lead `k`, created for the quantile levels of the forecasts. */
+  private quantileLead(k: number, levels: readonly number[]): Map<string, QuantileMethod> {
+    while (this.quantileMethods.length < k) {
+      const m = new Map<string, QuantileMethod>();
+      const ctx = { lead: this.quantileMethods.length + 1, shared: this.shared };
+      for (const spec of this.activeSpecs) {
+        if (spec.quantile) m.set(spec.id, spec.quantile(levels, { ...defaultParams(spec), ...this.settings.params[spec.id] }, ctx));
+      }
+      this.quantileMethods.push(m);
+    }
+    return this.quantileMethods[k - 1];
   }
 
   /** Lead-k score history (for diagnostics and tests). */
@@ -296,7 +322,7 @@ export class Engine {
     const sides = isAsymmetric(this.settings.scoreType) ? [false, true] : [false];
     for (const spec of this.activeSpecs) {
       f.thresholds.set(spec.id, new Float64Array(f.horizon).fill(NaN));
-      if (sides.length > 1) f.thresholdsUp.set(spec.id, new Float64Array(f.horizon).fill(NaN));
+      if (sides.length > 1 || spec.quantile) f.thresholdsUp.set(spec.id, new Float64Array(f.horizon).fill(NaN));
     }
     for (let k = 1; k <= H; k++) {
       for (const up of sides) {
@@ -312,6 +338,13 @@ export class Engine {
           else q = Math.max(-cap, Math.min(cap, q));
           out.get(id)![k - 1] = q;
         }
+      }
+      // Quantile-level methods recalibrate the whole quantile vector; the interval is read off it.
+      const Q = f.levels.length;
+      for (const [id, m] of this.quantileLead(k, f.levels)) {
+        const played = m.predict(f.origin, Float64Array.from(f.quantiles.subarray((k - 1) * Q, k * Q)));
+        f.thresholds.get(id)![k - 1] = quantileAt(played, 0, f.levels, this.settings.alpha / 2);
+        f.thresholdsUp.get(id)![k - 1] = quantileAt(played, 0, f.levels, 1 - this.settings.alpha / 2);
       }
     }
   }
@@ -362,6 +395,7 @@ export class Engine {
     if (id === NATIVE_ID) return [f.lo[j], f.hi[j]];
     const q = f.thresholds.get(id)?.[j];
     if (q === undefined || Number.isNaN(q)) return null;
+    if (QUANTILE_IDS.has(id)) return [q, f.thresholdsUp.get(id)![j]];
     switch (this.settings.scoreType) {
       case "cqr":
         return [f.lo[j] - q, f.hi[j] + q];
@@ -421,6 +455,7 @@ export class Engine {
       }
       for (const [, m] of methods) m.update(f.origin, s);
       history.push(s);
+      for (const [, m] of this.quantileMethods[j] ?? []) m.update(f.origin, y);
       if (isAsymmetric(this.settings.scoreType)) {
         const su = this.scoreUp(f, j, y);
         const upper = this.lead(k, true);

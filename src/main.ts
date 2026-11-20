@@ -7,7 +7,7 @@ import { ForecastScheduler } from "./engine/scheduler";
 import { type ReliabilityCurve, maxGap, pitChart, reliabilityChart } from "./ui/calibration";
 import { type Backend, BrowserBackend, NaiveBackend, ServerBackend } from "./model/backends";
 import { FAMILY_NAMES, MODELS, type ModelFamily } from "./model/registry";
-import { DATASETS } from "./datasets";
+import { DATASETS, GIFT_EVAL_GROUP } from "./datasets";
 import { PRESETS as SYNTHETIC } from "./synthetic";
 import { type Align, HASH_KEY, type ModelRef, type Scenario, type SeriesRef, decodeScenario, encodeScenario, scenarioFromHash, seriesHash } from "./share";
 import { FONT, cssVar, fitCanvas, lineChart, withAlpha } from "./ui/plot";
@@ -1248,10 +1248,19 @@ function bindControls() {
   const preset = $<HTMLSelectElement>("preset");
   // A small set covers seasonality, a distribution shift, and two real series.
   // Older shared scenarios can still restore any bundled stream.
-  for (const id of ["sine", "levels", "airline", "electricity"]) {
-    const p = PRESETS.find((p) => p.id === id)!;
-    preset.add(new Option(p.label, p.id));
-  }
+  // The GIFT-Eval series follow under their own heading (headings cannot be selected).
+  const section = (label: string, items: typeof PRESETS) => {
+    const g = document.createElement("optgroup");
+    g.label = label;
+    for (const p of items) {
+      const o = new Option(p.label, p.id);
+      if (p.source) o.title = p.source;
+      g.append(o);
+    }
+    preset.append(g);
+  };
+  section("Examples", ["sine", "levels", "airline", "electricity"].map((id) => PRESETS.find((p) => p.id === id)!));
+  section(GIFT_EVAL_GROUP, PRESETS.filter((p) => p.group === GIFT_EVAL_GROUP));
   $("series-toggles").addEventListener("click", (e) => {
     const btn = (e.target as HTMLElement).closest<HTMLButtonElement>("button");
     if (!btn) return;
