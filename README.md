@@ -14,6 +14,8 @@ The demo uses the built-in naive baseline. Pick a Timestral checkpoint (5M to 20
 
 **Copy link** puts the current scenario in the URL: the drawn series (or the stream and its seed), the model, the enabled methods and their parameters, the score, α, the leads and the horizon alignment. Opening the link restores those settings and replays the series, so every forecast is issued and scored again. A Timestral checkpoint is loaded automatically if it is already in the browser cache; otherwise the page asks before downloading it.
 
+**Export GIF or video** (at the bottom of the settings panel) replays the current run in a layout made for sharing: slides (16:9), posts (16:9), square, portrait (4:5) and stories (9:16), with large type, thick lines, the focused method against the native interval and the live coverage. It renders in the browser as a GIF or, where WebCodecs is available, an MP4 (WebM as a fallback). No model is needed for this: the stored forecasts are replayed.
+
 ## Run locally
 
 ```bash

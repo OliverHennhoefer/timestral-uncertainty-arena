@@ -1186,6 +1186,7 @@ function bindControls() {
   });
   $("btn-backfill").addEventListener("click", backfill);
   $("btn-share").addEventListener("click", copyLink);
+  $("btn-export").addEventListener("click", openExport);
   window.addEventListener("hashchange", restoreFromHash);
   $("rank-table").addEventListener("click", (e) => {
     const row = (e.target as HTMLElement).closest<HTMLElement>("tr[data-id]");
@@ -1391,6 +1392,33 @@ async function copyLink() {
   } catch {
     toast("Copy the link from the address bar.");
   }
+}
+
+/** Open the GIF / video export with a snapshot of the run (loaded on first use). */
+async function openExport() {
+  if (!engine.series.length || engine.latestOrigin() < 0) {
+    toast("Play an example or draw a series first, then export it.");
+    return;
+  }
+  if (playing) togglePlay();
+  const y = engine.series;
+  const preset = streamRef && y.length <= playData.length && y.every((v, i) => v === playData[i]) ? PRESETS.find((p) => p.id === streamRef!.id) : undefined;
+  const repo = backend instanceof ServerBackend ? backend.repo : backend.kind === "browser" ? activeRepo : null;
+  const modelLabel = backend.kind === "naive" ? "Naive baseline" : (MODELS.find((m) => m.repo === repo)?.label ?? backend.modelName);
+  const { openExportDialog } = await import("./export/dialog");
+  openExportDialog({
+    series: y.slice(),
+    forecasts: [...engine.forecasts.values()].map((f) => ({ origin: f.origin, horizon: f.horizon, levels: f.levels, quantiles: f.quantiles })),
+    settings: structuredClone(engine.settings),
+    align,
+    focusId,
+    title: preset?.label ?? "Hand-drawn series",
+    modelName: backend.modelName,
+    modelLabel,
+    names: { ...NAMES },
+    colors: { ...COLORS },
+    methodIds: engine.activeSpecs.map((m) => m.id),
+  });
 }
 
 function modelLabel(repo: string): string {
