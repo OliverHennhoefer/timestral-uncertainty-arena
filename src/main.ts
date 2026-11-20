@@ -8,7 +8,7 @@ import { type ReliabilityCurve, maxGap, pitChart, reliabilityChart } from "./ui/
 import { type Backend, BrowserBackend, NaiveBackend, ServerBackend } from "./model/backends";
 import { FAMILY_NAMES, MODELS, type ModelFamily } from "./model/registry";
 import { DATASETS, GIFT_EVAL_GROUP } from "./datasets";
-import { PRESETS as SYNTHETIC } from "./synthetic";
+import { type Preset, PRESETS as SYNTHETIC } from "./synthetic";
 import { type Align, HASH_KEY, type ModelRef, type Scenario, type SeriesRef, decodeScenario, encodeScenario, scenarioFromHash, seriesHash } from "./share";
 import { FONT, cssVar, fitCanvas, lineChart, withAlpha } from "./ui/plot";
 import { Extent, FIXED_RANGE, type YMode, fitRange, niceTicks, zoomRange } from "./ui/yaxis";
@@ -356,7 +356,9 @@ function followEnd(trigger: number, to: number) {
 /** Whether the view keeps the newest point in sight. Any manual navigation turns it off. */
 let follow = true;
 const overview = $<HTMLCanvasElement>("overview-canvas");
-const MIN_PX = 0.2, MAX_PX = 40;
+const MIN_PX = 0.2, MAX_PX = 40, DEFAULT_PX = 2;
+/** Densest scale a dataset is squeezed to so it fits whole; below this it scrolls instead. */
+const FIT_MIN_PX = 1;
 
 function setFollow(on: boolean) {
   follow = on;
@@ -368,6 +370,27 @@ function setFollow(on: boolean) {
 function forecastSteps(): number {
   const f = engine.forecasts.get(engine.latestOrigin());
   return f ? align === "full" ? f.horizon : Math.min(f.horizon, engine.settings.evalLeads) : 0;
+}
+
+/** Forecast steps the current settings will show once forecasts arrive. */
+function plannedForecastSteps(): number {
+  return align === "full" ? horizon : Math.min(horizon, engine.settings.evalLeads);
+}
+
+/**
+ * Time scale for a new stream. A dataset whose whole run, plus the last forecast, fits at
+ * FIT_MIN_PX or more is scaled to fill the chart width exactly, so it ends at the right edge.
+ * Longer datasets and the synthetic streams keep the default scale and scroll as they play.
+ */
+function fitRun(preset: Preset, n: number) {
+  const fit = canvas.getBoundingClientRect().width / (n + plannedForecastSteps() + 4);
+  view.pxPerStep = preset.group && fit >= FIT_MIN_PX ? Math.min(MAX_PX, fit) : DEFAULT_PX;
+}
+
+/** Whether the rest of the playing stream already fits the view, so it need not scroll. */
+function runFitsView(): boolean {
+  const end = seriesOffset + (playStopAt ?? playData.length) + plannedForecastSteps() + 4;
+  return end <= view.start + viewSteps() + 0.5;
 }
 
 function overviewSpan(): number {
@@ -538,6 +561,7 @@ function startStream(seed = Math.floor(Math.random() * 1e9)) {
   playData = preset.make(2000, seed);
   playIdx = 0;
   playStopAt = null;
+  fitRun(preset, playData.length);
   streamRef = { id: preset.id, seed };
   $("draw-hint").classList.add("hidden");
 }
@@ -554,7 +578,8 @@ function tick() {
       return;
     }
     engine.append(playData[playIdx++]);
-    followEnd(0.75, 0.75);
+    if (runFitsView()) requestRender();
+    else followEnd(0.75, 0.75);
     pump();
   }
   playTimer = window.setTimeout(tick, waiting ? 5 : delay);
@@ -1284,7 +1309,7 @@ function bindControls() {
     scheduler.forget();
     seriesOffset = 0;
     view.start = 0;
-    view.pxPerStep = 2;
+    view.pxPerStep = DEFAULT_PX;
     setYMode(yAuto);
     setFollow(true);
     playIdx = playData.length;
@@ -1626,6 +1651,7 @@ async function restoreFromHash() {
       select.value = p.id;
       playData = p.make(2000, ref.seed);
       playStopAt = Math.min(ref.n, playData.length);
+      fitRun(p, playStopAt);
       streamRef = { id: p.id, seed: ref.seed };
       if (seriesHash(playData.slice(0, playStopAt)) !== ref.hash) toast(`The "${p.label}" stream has changed since this link was made, so the replay differs.`, 8000);
     }
