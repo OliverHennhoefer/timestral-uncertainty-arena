@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { defaultSettings } from "../src/engine/engine";
+import { RANK_BY, defaultSettings } from "../src/engine/engine";
 import { type Scenario, decodeScenario, encodeScenario, packValues, scenarioFromHash, seriesHash, unpackValues } from "../src/share";
 import { PRESETS } from "../src/synthetic";
 
@@ -60,6 +60,13 @@ describe("scenario links", () => {
     const code = await encodeScenario(s);
     expect(code.startsWith("1z")).toBe(true);
     expect(await decodeScenario(code, defaultSettings())).toEqual(s);
+  });
+
+  it("keep every ranking criterion", async () => {
+    for (const rankBy of RANK_BY) {
+      const s = scenario({ rankBy });
+      expect((await decodeScenario(await encodeScenario(s), defaultSettings())).rankBy).toBe(rankBy);
+    }
   });
 
   it("carry a drawn series and its offset", async () => {

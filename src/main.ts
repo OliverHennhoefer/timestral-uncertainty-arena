@@ -58,7 +58,7 @@ let yAuto = yMode as Exclude<YMode, "manual">;
 let maxContext = 256;
 let symmetric = true;
 let clip = true;
-let rankBy: RankBy = "interval_score";
+let rankBy: RankBy = "validity_then_width";
 /** 0 = pooled over all scored leads, else a single lead. */
 let rankLead = 0;
 let uncCache: { key: string; at: number; len: number; value: Map<string, Uncertainty> } | null = null;
@@ -1008,13 +1008,16 @@ function renderTable() {
   const alpha = engine.settings.alpha;
   const target = 1 - alpha;
   const unc = uncertainty();
-  const rows = rankRows(engine.table(rankLead || undefined), alpha, rankBy, 0.02, unc);
+  const tolerance = 0.02;
+  const rows = rankRows(engine.table(rankLead || undefined), alpha, rankBy, tolerance, unc);
   const hasData = rows.some((r) => r.n > 0);
   $("rank-empty").classList.toggle("hidden", hasData);
   $("rank-table").classList.toggle("hidden", !hasData);
+  const tpct = (v: number) => `${+(v * 100).toFixed(1)}%`;
   const criteria: Record<RankBy, string> = {
+    validity_then_width: `Coverage ≥ ${tpct(target - tolerance)}, then width`,
+    penalized: "Penalized score",
     interval_score: "Interval score",
-    validity_then_width: "Coverage, then width",
     rolling_gap: "Rolling coverage",
   };
   $("ranking-scope").textContent = `${criteria[rankBy]} · ${rankLead ? `step ${rankLead}` : "all steps"}`;
@@ -1030,18 +1033,39 @@ function renderTable() {
   const num = (v: number) => (Number.isFinite(v) ? v.toFixed(2) : "–");
   const bar = (v: number, col: string) =>
     `<span class="covbar"><span class="fill" style="width:${Number.isFinite(v) ? v * 100 : 0}%;background:${col}"></span><span class="target" style="left:${target * 100}%"></span></span>`;
+  // Extra columns (class "x") give way on narrow tables, except the one the ranking uses.
+  const R = engine.settings.rolling;
+  const cols: { label: string; tip: string; extra?: true; by?: RankBy[] }[] = [
+    { label: "Coverage", tip: `Share of values inside the interval. Target ${tpct(target)}.`, by: ["validity_then_width"] },
+    { label: "Worst window", extra: true, tip: `Lowest coverage over any ${R}-step stretch (the rolling window). Shows whether coverage holds through regime changes, not just on average.` },
+    { label: "Width", tip: "Mean interval width.", by: ["validity_then_width"] },
+    { label: `Width at ${tpct(target)}`, extra: true, tip: `Mean width after moving every bound by one shared margin, chosen in hindsight so that exactly ${tpct(target)} of the values are covered. Compares sharpness at equal coverage; a diagnostic, not a usable interval.` },
+    { label: "Interval score", tip: `Winkler interval score: width plus ${+(2 / alpha).toFixed(2)}× how far each miss lands outside. It charges a miss by its distance, not by how often misses happen.`, by: ["interval_score"] },
+    { label: "Penalized", extra: true, tip: `Interval score × miss rate / ${+alpha.toFixed(3)} when a method misses more often than ${tpct(alpha)}, e.g. ×1.37 at ${tpct(target - 0.037)} coverage. Over-coverage only costs its width.`, by: ["penalized"] },
+  ];
+  const cls = (i: number, more: string[] = []) => {
+    const by = !!cols[i].by?.includes(rankBy);
+    const c = [cols[i].extra && !by ? "x" : "", by ? "by" : "", ...more].filter(Boolean);
+    return c.length ? ` class="${c.join(" ")}"` : "";
+  };
   const html = [
-    `<thead><tr><th scope="col">#</th><th scope="col">Method</th><th scope="col">Coverage</th><th scope="col">Width</th><th scope="col">Score</th></tr></thead><tbody>`,
+    `<thead><tr><th scope="col">#</th><th scope="col">Method</th>${cols.map((c, i) => `<th scope="col"${cls(i)} title="${c.tip}">${c.label}</th>`).join("")}</tr></thead><tbody>`,
     ...rows.map((r, i) => {
-      const off = Number.isFinite(r.coverage) && Math.abs(r.coverage - target) > 0.05 ? ' class="off"' : "";
+      const off = Number.isFinite(r.coverage) && Math.abs(r.coverage - target) > 0.05 ? ["off"] : [];
       const u = unc.get(r.id);
       const tip = `Rolling coverage ${pct(r.rollingCoverage)} · ${r.n} pairs${r.tied ? " · tied with the row above" : ""}`;
+      const factor = Number.isFinite(r.coverage) ? Math.max(1, (1 - r.coverage) / alpha) : NaN;
+      const ptip = factor > 1 ? ` title="×${factor.toFixed(2)}: misses ${pct(1 - r.coverage)} of the time, target ${tpct(alpha)}"` : "";
+      const td = (j: number, body: string, attrs = "") => `<td${cls(j, j === 0 ? off : [])}${attrs}>${body}</td>`;
       return `<tr class="${i === 0 && r.n > 0 ? "first" : ""}${r.id === focusId ? " focus" : ""}${r.tied ? " tied" : ""}" data-id="${r.id}" title="${tip}">
         <td>${r.n ? r.rank : "–"}</td>
         <td><button class="rank-method" aria-pressed="${r.id === focusId}" aria-label="Focus ${NAMES[r.id]}"><span class="dot" style="background:${COLORS[r.id]}"></span>${NAMES[r.id]}</button></td>
-        <td${off}>${bar(r.coverage, COLORS[r.id])}${pct(r.coverage)}${pm(r.coverage, u?.coverage, 100, 1)}</td>
-        <td>${num(r.meanWidth)}</td>
-        <td>${num(r.intervalScore)}${pm(r.intervalScore, u?.intervalScore)}</td></tr>`;
+        ${td(0, `${bar(r.coverage, COLORS[r.id])}${pct(r.coverage)}${pm(r.coverage, u?.coverage, 100, 1)}`)}
+        ${td(1, pct(r.worstCoverage))}
+        ${td(2, num(r.meanWidth))}
+        ${td(3, num(r.widthAtTarget))}
+        ${td(4, `${num(r.intervalScore)}${pm(r.intervalScore, u?.intervalScore)}`)}
+        ${td(5, `${num(r.penalizedScore)}${pm(r.penalizedScore, u?.penalizedScore)}`, ptip)}</tr>`;
     }),
   ];
   const activeRow = document.activeElement?.closest<HTMLElement>("#rank-table tr[data-id]")?.dataset.id;

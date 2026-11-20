@@ -24,6 +24,9 @@ export interface Uncertainty {
   /** Resampled mean interval scores, one per replicate (paired across methods). */
   scoreSamples: Float64Array;
   coverageSamples: Float64Array;
+  /** Penalized interval score (see `penalizedScore`), when the engine adds it. */
+  penalizedScore?: [number, number];
+  penalizedSamples?: Float64Array;
 }
 
 /** Small seeded PRNG (mulberry32) so the intervals do not flicker between renders. */
@@ -43,6 +46,12 @@ function percentile(sorted: Float64Array, p: number): number {
   const x = p * (sorted.length - 1);
   const i = Math.floor(x), f = x - i;
   return i + 1 < sorted.length ? sorted[i] * (1 - f) + sorted[i + 1] * f : sorted[i];
+}
+
+/** 95% percentile interval of finite samples. */
+export function interval95(samples: Float64Array): [number, number] {
+  const s = samples.filter(Number.isFinite).sort();
+  return [percentile(s, 0.025), percentile(s, 0.975)];
 }
 
 /**
