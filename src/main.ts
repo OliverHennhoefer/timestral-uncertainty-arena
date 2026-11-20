@@ -10,6 +10,7 @@ import { FAMILY_NAMES, MODELS, type ModelFamily } from "./model/registry";
 import { DATASETS, GIFT_EVAL_GROUP } from "./datasets";
 import { type Preset, PRESETS as SYNTHETIC } from "./synthetic";
 import { type Align, HASH_KEY, type ModelRef, type Scenario, type SeriesRef, decodeScenario, encodeScenario, scenarioFromHash, seriesHash } from "./share";
+import { initHelp } from "./ui/help";
 import { FONT, cssVar, fitCanvas, lineChart, withAlpha } from "./ui/plot";
 import { Extent, FIXED_RANGE, type YMode, fitRange, niceTicks, zoomRange } from "./ui/yaxis";
 
@@ -1180,7 +1181,11 @@ function applySettings(patch: Partial<Settings>) {
 function renderMethods() {
   const list = $("method-list");
   const s = engine.settings;
-  const groups: [string, string][] = [["conformal", "Conformal"], ["bayesian", "Bayesian"], ["variant", "Variants (not in the papers)"]];
+  const groups: [string, string, string][] = [
+    ["conformal", "Conformal", "Methods that widen or narrow the interval from past forecast errors so that coverage stays near the target over time. Most guarantee long-run coverage without assumptions about the data."],
+    ["bayesian", "Bayesian", "Methods that model the forecast errors with a prior and a posterior, often to notice regime changes. Most have no coverage guarantee."],
+    ["variant", "Variants (not in the papers)", "Changes that are not in the original papers, such as ACI with its step size divided by the lead, or one ACI level shared by all leads."],
+  ];
   const item = (m: (typeof METHODS)[number]) => `<div class="method" data-id="${m.id}">
       <label class="check-row" title="${m.summary} (${m.reference})${m.guarantee === false ? " · no distribution-free coverage guarantee" : ""}">
         <input type="checkbox" class="toggle" ${s.enabled[m.id] ? "checked" : ""} />
@@ -1193,11 +1198,14 @@ function renderMethods() {
           .join("")}</div></details>` : ""}
     </div>`;
   list.innerHTML = groups
-    .map(([fam, label]) => {
+    .map(([fam, label, tip]) => {
       const ms = METHODS.filter((m) => (m.family ?? "conformal") === fam);
-      return ms.length ? `<div class="method-group">${label}</div>${ms.map(item).join("")}` : "";
+      return ms.length
+        ? `<div class="method-group">${label}<button class="help" aria-label="About ${fam === "variant" ? "variants" : `${label} methods`}" data-tip="${tip}">?</button></div>${ms.map(item).join("")}`
+        : "";
     })
     .join("");
+  initHelp(list);
   list.querySelectorAll<HTMLElement>(".method[data-id]").forEach((row) => {
     const id = row.dataset.id!;
     row.querySelector<HTMLInputElement>(".toggle")!.addEventListener("change", (e) => {
@@ -1814,6 +1822,7 @@ function initPanel() {
 initPanel();
 bindControls();
 renderMethods();
+initHelp();
 renderLegend();
 setPill();
 requestRender();

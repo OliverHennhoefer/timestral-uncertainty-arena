@@ -56,14 +56,15 @@
 
           <section class="settings-section" aria-labelledby="forecast-heading">
             <h3 id="forecast-heading">Forecast</h3>
-            <label class="field">Horizon
+            <div class="field">
+              <div class="field-label"><label for="horizon">Horizon</label><button class="help" aria-label="About horizon" data-tip="How many steps ahead the model forecasts each time a new value arrives.">?</button></div>
               <select id="horizon">
                 <option value="32">32 steps</option>
                 <option value="64" selected>64 steps</option>
                 <option value="128">128 steps</option>
               </select>
-            </label>
-            <label class="field range-field" for="alpha">Target coverage <output class="value" id="alpha-val" for="alpha">90%</output></label>
+            </div>
+            <div class="field range-field"><label for="alpha">Target coverage</label><button class="help" aria-label="About target coverage" data-tip="The share of future values the intervals should contain. At 90%, about one value in ten may fall outside.">?</button><output class="value" id="alpha-val" for="alpha">90%</output></div>
             <input id="alpha" type="range" aria-label="Target coverage" min="50" max="98" step="1" value="90" />
           </section>
 
@@ -87,45 +88,66 @@
             </div>
             <div class="settings-group">
               <h4>Forecast</h4>
-              <label class="field">Context length <input id="max-context" type="number" min="32" max="32768" step="32" value="256" /></label>
-              <label class="field">Forecast alignment
+              <div class="field">
+                <div class="field-label"><label for="max-context">Context length</label><button class="help" aria-label="About context length" data-tip="How many of the latest observations the model reads before each forecast. More context can capture slower patterns but takes longer.">?</button></div>
+                <input id="max-context" type="number" min="32" max="32768" step="32" value="256" />
+              </div>
+              <div class="field">
+                <div class="field-label"><label for="align">Forecast alignment</label><button class="help" aria-label="About forecast alignment" data-tip="Match calibrated steps cuts the forecast to the steps that get calibrated intervals. Calibrate the full horizon calibrates every step. Show the full model horizon draws every step but calibrates only the first ones.">?</button></div>
                 <select id="align">
                   <option value="cut">Match calibrated steps</option>
                   <option value="calibrate">Calibrate the full horizon</option>
                   <option value="full">Show the full model horizon</option>
                 </select>
-              </label>
+              </div>
               <p class="hint-text" id="align-hint"></p>
-              <label class="check-row"><input type="checkbox" id="symmetric" checked />Symmetric averaging</label>
+              <div class="check-help"><label class="check-row"><input type="checkbox" id="symmetric" checked />Symmetric averaging</label><button class="help" aria-label="About symmetric averaging" data-tip="Also forecasts the series flipped upside down and averages both results, so rises and falls are treated alike. Takes twice as long. Timestral only.">?</button></div>
               <label class="check-row"><input type="checkbox" id="clip" checked />Keep non-negative series above zero</label>
             </div>
             <div class="settings-group">
               <h4>Calibration</h4>
-              <label class="field">Calibration score
+              <div class="field">
+                <div class="field-label"><label for="score-type">Calibration score</label><button class="help" aria-label="About calibration score" data-tip="How each forecast error is measured, which sets the interval shape. Native quantile residual stretches the model's own band. Separate lower / upper residuals adjusts each side on its own. The median residuals build a band around the median, of fixed width or scaled by the model's band.">?</button></div>
                 <select id="score-type">
                   <option value="cqr">Native quantile residual</option>
                   <option value="cqr_asym">Separate lower / upper residuals</option>
                   <option value="abs">Absolute median residual</option>
                   <option value="scaled">Scaled median residual</option>
                 </select>
-              </label>
+              </div>
               <div class="pair">
-                <label class="field">Calibrated steps <input id="eval-leads" type="number" min="1" max="128" value="16" /></label>
-                <label class="field">Window <input id="window" type="number" min="10" max="2000" value="100" /></label>
-                <label class="field">Warm-up <input id="warmup" type="number" min="1" max="500" value="10" /></label>
-                <label class="field">Rolling window <input id="rolling" type="number" min="5" max="5000" value="100" /></label>
+                <div class="field">
+                  <div class="field-label"><label for="eval-leads">Calibrated steps</label><button class="help" aria-label="About calibrated steps" data-tip="How many steps ahead get calibrated intervals and are scored. Each step ahead is calibrated on its own.">?</button></div>
+                  <input id="eval-leads" type="number" min="1" max="128" value="16" />
+                </div>
+                <div class="field">
+                  <div class="field-label"><label for="window">Window</label><button class="help" aria-label="About window" data-tip="How many recent forecast errors the methods calibrate from. Smaller adapts faster but is noisier.">?</button></div>
+                  <input id="window" type="number" min="10" max="2000" value="100" />
+                </div>
+                <div class="field">
+                  <div class="field-label"><label for="warmup">Warm-up</label><button class="help" aria-label="About warm-up" data-tip="How many forecast errors must be collected before intervals count toward the scores.">?</button></div>
+                  <input id="warmup" type="number" min="1" max="500" value="10" />
+                </div>
+                <div class="field">
+                  <div class="field-label"><label for="rolling">Rolling window</label><button class="help" aria-label="About rolling window" data-tip="How many recent time steps the coverage and width charts and the Worst window column average over.">?</button></div>
+                  <input id="rolling" type="number" min="5" max="5000" value="100" />
+                </div>
               </div>
             </div>
             <div class="settings-group">
               <h4>Ranking</h4>
-              <label class="field">Evaluate <select id="rank-lead"></select></label>
-              <label class="field">Rank methods by
+              <div class="field">
+                <div class="field-label"><label for="rank-lead">Evaluate</label><button class="help" aria-label="About evaluate" data-tip="Which steps ahead the comparison scores: all calibrated steps together, or a single step (lead).">?</button></div>
+                <select id="rank-lead"></select>
+              </div>
+              <div class="field">
+                <div class="field-label"><label for="rank-by">Rank methods by</label><button class="help" aria-label="About ranking" data-tip="Valid coverage, then width: methods at most 2 points under the target come first, and the narrowest wins. Interval score: width plus a charge for how far misses land. Penalized: interval score raised when misses are too frequent. Closest rolling coverage: nearest to the target over the rolling window.">?</button></div>
                 <select id="rank-by">
                   <option value="valid_then_shape" selected>Coverage test, then shape score</option>
                   <option value="interval_score">Interval score</option>
                   <option value="rolling_gap">Closest rolling coverage</option>
                 </select>
-              </label>
+              </div>
               <button id="btn-backfill" class="wide" title="Recompute all past forecasts" disabled>Recompute forecasts</button>
               <p class="hint-text" id="backfill-progress" role="status"></p>
             </div>
