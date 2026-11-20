@@ -1,10 +1,18 @@
 import { describe, expect, it } from "vitest";
 import { METHODS, createSolo, defaultParams } from "../src/conformal/methods";
 import { ScoreHistory, aciErr, conformalQuantile } from "../src/conformal/window";
-import { Engine, NATIVE_ID, defaultSettings, quantileAt, rankRows } from "../src/engine/engine";
+import { Engine, type MetricsRow, NATIVE_ID, defaultSettings, penalizedScore, quantileAt, rankRows, widthAtTarget, worstWindowCoverage } from "../src/engine/engine";
 import { NaiveBackend, TIMESTRAL_LEVELS, normInv } from "../src/model/backends";
 import { PRESETS } from "../src/synthetic";
 import { blockBootstrap, indistinguishable } from "../src/engine/bootstrap";
+
+/** A metrics row with only the fields the ranking reads. */
+function row(id: string, coverage: number, width: number, intervalScore: number): MetricsRow {
+  return {
+    id, n: 10, coverage, rollingCoverage: coverage, meanWidth: width, rollingWidth: width, intervalScore,
+    penalizedScore: penalizedScore(intervalScore, coverage, 0.1), widthAtTarget: width, worstCoverage: coverage,
+  };
+}
 
 function rng(seed: number) {
   let s = seed >>> 0;
@@ -97,21 +105,62 @@ describe("engine", () => {
   });
 
   it("ranks by interval score and by validity", () => {
-    const rows = [
-      { id: "a", n: 10, coverage: 0.9, rollingCoverage: 0.9, meanWidth: 2, rollingWidth: 2, intervalScore: 3 },
-      { id: "b", n: 10, coverage: 0.7, rollingCoverage: 0.7, meanWidth: 1, rollingWidth: 1, intervalScore: 5 },
-      { id: "c", n: 10, coverage: 0.95, rollingCoverage: 0.95, meanWidth: 4, rollingWidth: 4, intervalScore: 4 },
-    ];
+    const rows = [row("a", 0.9, 2, 3), row("b", 0.7, 1, 5), row("c", 0.95, 4, 4)];
     expect(rankRows(rows, 0.1, "interval_score").map((r) => r.id)).toEqual(["a", "c", "b"]);
     expect(rankRows(rows, 0.1, "validity_then_width", 0.06).map((r) => r.id)).toEqual(["a", "c", "b"]);
   });
 
   it("validity-first ranking treats over-coverage as valid", () => {
-    const rows = [
-      { id: "under", n: 10, coverage: 0.85, rollingCoverage: 0.85, meanWidth: 1, rollingWidth: 1, intervalScore: 1 },
-      { id: "over", n: 10, coverage: 1, rollingCoverage: 1, meanWidth: 5, rollingWidth: 5, intervalScore: 5 },
-    ];
+    const rows = [row("under", 0.85, 1, 1), row("over", 1, 5, 5)];
     expect(rankRows(rows, 0.1, "validity_then_width").map((r) => r.id)).toEqual(["over", "under"]);
+  });
+
+  it("the penalized score charges a narrow interval for missing too often", () => {
+    // 86.3% coverage at width 8.04 beats 89.7% at 9.20 on the interval score alone.
+    const rows = [row("narrow", 0.863, 8.04, 10.2), row("calibrated", 0.897, 9.2, 10.6)];
+    expect(rankRows(rows, 0.1, "interval_score").map((r) => r.id)).toEqual(["narrow", "calibrated"]);
+    expect(rankRows(rows, 0.1, "penalized").map((r) => r.id)).toEqual(["calibrated", "narrow"]);
+    expect(rankRows(rows, 0.1, "validity_then_width").map((r) => r.id)).toEqual(["calibrated", "narrow"]);
+    // Missing 13.7% instead of 10% multiplies the score by 1.37; over-coverage is never penalized.
+    expect(penalizedScore(10, 0.863, 0.1)).toBeCloseTo(13.7, 10);
+    expect(penalizedScore(10, 0.95, 0.1)).toBe(10);
+  });
+
+  it("width at target widens or narrows every interval by one margin until the target is covered", () => {
+    // Ten unit-width intervals; values land 0.5 outside on two of them (80% coverage).
+    const excess = [-0.5, -0.4, -0.3, -0.2, -0.1, -0.1, -0.2, -0.3, 0.5, 0.5];
+    const width = new Array(10).fill(1);
+    expect(widthAtTarget([{ excess, width }], 0.8)).toBeCloseTo(1 - 0.2, 10);
+    expect(widthAtTarget([{ excess, width }], 0.9)).toBeCloseTo(2, 10);
+    // Split across leads, the pairs pool.
+    expect(widthAtTarget([{ excess: excess.slice(0, 4), width: width.slice(0, 4) }, { excess: excess.slice(4), width: width.slice(4) }], 0.9)).toBeCloseTo(2, 10);
+    expect(widthAtTarget([{ excess: [], width: [] }], 0.9)).toBeNaN();
+  });
+
+  it("worst window coverage only counts full windows", () => {
+    const t = Array.from({ length: 10 }, (_, i) => i);
+    const n = new Array(10).fill(1);
+    const cov = [0, 0, 1, 1, 1, 1, 0, 0, 1, 1];
+    // Windows of 4 steps end at t = 3..9; the worst is t = 4..7 or 5..8 with 2 of 4 covered.
+    expect(worstWindowCoverage(t, n, cov, 4)).toBe(0.5);
+    expect(worstWindowCoverage(t, n, cov, 2)).toBe(0);
+    expect(worstWindowCoverage(t, n, cov, 11)).toBeNaN();
+  });
+
+  it("table reports the extra scores consistently", async () => {
+    const r = rng(5);
+    const y = Array.from({ length: 300 }, () => normInv(r()));
+    const e = new Engine({ ...defaultSettings(), evalLeads: 4, rolling: 50 });
+    await run(e, y, 4);
+    for (const row of [...e.table(), ...e.table(2)]) {
+      expect(row.penalizedScore).toBeGreaterThanOrEqual(row.intervalScore);
+      expect(row.worstCoverage).toBeLessThanOrEqual(row.coverage);
+      expect(Number.isFinite(row.widthAtTarget)).toBe(true);
+    }
+    const u = e.uncertainty();
+    const [lo, hi] = u.get(NATIVE_ID)!.penalizedScore!;
+    expect(lo).toBeLessThanOrEqual(hi);
+    expect(rankRows(e.table(), 0.1, "penalized", 0.02, u)[0].rank).toBe(1);
   });
 
   it("ACI's infinite interval issues the cap but never counts as a miss", () => {
