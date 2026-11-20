@@ -6,7 +6,7 @@
  */
 
 import { niceTicks } from "../ui/yaxis";
-import type { Layout } from "./layouts";
+import type { Layout, Typography } from "./layouts";
 import type { CoverageTrace, FrameState, StatLine } from "./scene";
 
 export type Theme = "light" | "dark";
@@ -43,6 +43,9 @@ function rgba(hex: string, a: number): string {
   return `rgba(${r},${g},${b},${a})`;
 }
 
+/** The native row is named after the model in the subtitle already; "Native" is enough here. */
+const shortName = (s: StatLine) => (s.id === "native" ? "Native" : s.name);
+
 const pct = (v: number) => (Number.isFinite(v) ? `${(v * 100).toFixed(1)}%` : "–");
 
 interface Rect {
@@ -74,9 +77,13 @@ export class Painter {
 
   draw(ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, f: FrameState, progress: number, ease = 0.18): void {
     const L = this.layout;
+    const T = L.type;
+    const S = L.safe;
     const P = PALETTES[this.theme];
     const wide = L.w / L.h > 1.4;
     this.y = this.y ? [this.y[0] + (f.yLo - this.y[0]) * ease, this.y[1] + (f.yHi - this.y[1]) * ease] : [f.yLo, f.yHi];
+    const stats = f.stats.map((st) => ({ ...st, name: shortName(st) }));
+    const x0 = S.left, cw = L.w - S.left - S.right;
 
     ctx.save();
     ctx.fillStyle = P.bg;
@@ -85,92 +92,91 @@ export class Painter {
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
 
-    const pad = wide ? 56 : 64;
-    let top = pad;
+    let top = S.top;
 
     // Title and subtitle; in wide layouts the coverage numbers sit to their right.
     let statW = 0;
     if (wide) {
-      ctx.font = font(22, 500);
-      for (const st of f.stats) statW = Math.max(statW, ctx.measureText(st.name).width + 60);
-      ctx.font = font(50, 650);
-      statW = Math.min(Math.max(statW, ctx.measureText("100.0%").width + 40, 200), (L.w - 2 * pad) * 0.26);
+      ctx.font = font(T.label, 500);
+      for (const st of stats) statW = Math.max(statW, ctx.measureText(st.name).width + T.label * 1.4);
+      ctx.font = font(T.value, 650);
+      statW = Math.max(statW, ctx.measureText("100.0%").width + T.value * 0.4);
     }
-    const textW = L.w - 2 * pad - (wide ? statW * f.stats.length + 24 : 0);
-    const titlePx = wide ? (L.w >= 1500 ? 46 : 44) : 58;
-    const subPx = wide ? (L.w >= 1500 ? 26 : 25) : 30;
+    const textW = cw - (wide ? statW * stats.length + 24 : 0);
     ctx.fillStyle = P.ink;
+    // A title slightly too long for one line is set a little smaller rather than wrapped.
+    let titlePx = T.title;
     ctx.font = font(titlePx, 650);
-    const titleLines = wrap(ctx, this.texts.title, textW, wide ? 1 : 2);
-    for (const line of titleLines) {
-      top += titlePx;
-      ctx.fillText(line, pad, top);
-      top += titlePx * 0.18;
+    const tw = ctx.measureText(this.texts.title).width;
+    if (tw > textW && tw * 0.8 <= textW) titlePx = Math.floor((T.title * textW) / tw);
+    ctx.font = font(titlePx, 650);
+    for (const line of wrap(ctx, this.texts.title, textW, 2)) {
+      top += T.title * 0.92;
+      ctx.fillText(line, x0, top);
+      top += T.title * 0.2;
     }
-    ctx.font = font(subPx);
+    ctx.font = font(T.sub);
     ctx.fillStyle = P.muted;
-    const subLines = wrap(ctx, this.texts.subtitle, textW, 2);
-    top += subPx * 0.35;
-    for (const line of subLines) {
-      top += subPx;
-      ctx.fillText(line, pad, top);
-      top += subPx * 0.3;
+    top += T.sub * 0.2;
+    for (const line of wrap(ctx, this.texts.subtitle, textW, L.subLines)) {
+      top += T.sub;
+      ctx.fillText(line, x0, top);
+      top += T.sub * 0.3;
     }
 
     if (wide) {
-      this.statsRow(ctx, P, f.stats, { x: L.w - pad - statW * f.stats.length, y: pad, w: statW * f.stats.length, h: 0 }, 22, 50, true);
-      top = Math.max(top, pad + 100);
+      const h = this.statsRow(ctx, P, stats, { x: x0 + cw - statW * stats.length, y: S.top, w: statW * stats.length, h: 0 }, T, true);
+      top = Math.max(top, S.top + h);
     } else {
-      top += 40;
-      const square = L.h / L.w < 1.15;
-      const h = this.statsRow(ctx, P, f.stats, { x: pad, y: top, w: L.w - 2 * pad, h: 0 }, square ? 26 : 28, square ? 60 : 76, false);
-      top += h;
+      top += T.sub;
+      top += this.statsRow(ctx, P, stats, { x: x0, y: top, w: cw, h: 0 }, T, false);
     }
 
-    // Bottom: legend and brand, then the progress bar on the very edge.
-    const legendPx = wide ? 22 : 27;
-    const items = this.legendItems(f, P);
-    ctx.font = font(legendPx);
-    const rows = layoutLegend(ctx, items, L.w - 2 * pad, legendPx);
-    const rowH = legendPx * 1.75;
-    const brandPx = wide ? 19 : 23;
-    const bottomGap = wide ? 34 : 44;
-    const legendTop = L.h - pad - rows.length * rowH - (wide ? 0 : brandPx * 2);
-    const chartTop = top + (wide ? 34 : 40);
+    // Bottom of the content box: the legend (and brand). Below it, outside the safe box,
+    // only the progress bar on the very edge.
+    const items = this.legendItems(P, stats);
+    ctx.font = font(T.legend);
+    const rows = layoutLegend(ctx, items, cw, T.legend);
+    const rowH = T.legend * 1.7;
+    const brandBelow = !wide;
+    const bottom = L.h - S.bottom - (brandBelow ? T.brand * 1.9 : 0);
+    const legendTop = bottom - rows.length * rowH;
+    const gap = T.tick * 1.2;
+    const chartTop = top + gap;
 
     let covH = 0;
-    if (!wide && L.h / L.w > 1.15) covH = Math.round((legendTop - chartTop) * (L.h / L.w > 1.6 ? 0.34 : 0.3));
-    const chart: Rect = { x: pad, y: chartTop, w: L.w - 2 * pad, h: legendTop - bottomGap - chartTop - (covH ? covH + 36 : 0) };
-    this.mainChart(ctx, P, f, chart, wide);
-    if (covH) this.coverageChart(ctx, P, f, { x: pad, y: chart.y + chart.h + 36, w: L.w - 2 * pad, h: covH }, f.coverage);
+    if (!wide && L.h / L.w > 1.15) covH = Math.round((legendTop - chartTop) * (L.h / L.w > 1.6 ? 0.32 : 0.28));
+    const chart: Rect = { x: x0, y: chartTop, w: cw, h: legendTop - gap - chartTop - (covH ? covH + gap : 0) };
+    this.mainChart(ctx, P, f, chart, stats);
+    if (covH) this.coverageChart(ctx, P, f, { x: x0, y: chart.y + chart.h + gap, w: cw, h: covH }, f.coverage);
 
-    ctx.font = font(legendPx);
+    ctx.font = font(T.legend);
     rows.forEach((row, r) => {
-      let x = pad;
-      const y = legendTop + r * rowH + legendPx;
+      let x = x0;
+      const y = legendTop + r * rowH + T.legend;
       for (const it of row) {
-        drawKey(ctx, it, x, y - legendPx * 0.35, legendPx);
+        drawKey(ctx, it, x, y - T.legend * 0.35, T.legend);
         ctx.fillStyle = P.muted;
-        ctx.fillText(it.label, x + legendPx * 1.6, y);
-        x += it.width + legendPx * 1.3;
+        ctx.fillText(it.label, x + T.legend * 1.6, y);
+        x += it.width + T.legend * 1.3;
       }
     });
-    ctx.font = font(brandPx, 500);
+    ctx.font = font(T.brand, 500);
     ctx.fillStyle = P.muted;
     const brand = this.texts.brand;
-    if (wide) {
+    if (!brandBelow) {
       const lastRow = rows[rows.length - 1] ?? [];
-      const used = lastRow.reduce((s, it) => s + it.width + legendPx * 1.3, 0);
+      const used = lastRow.reduce((sum, it) => sum + it.width + T.legend * 1.3, 0);
       const bw = ctx.measureText(brand).width;
-      if (used + bw + 40 < L.w - 2 * pad) ctx.fillText(brand, L.w - pad - bw, legendTop + (rows.length - 1) * rowH + legendPx);
+      if (used + bw + 40 < cw) ctx.fillText(brand, x0 + cw - bw, legendTop + (rows.length - 1) * rowH + T.legend);
     } else {
-      ctx.fillText(brand, pad, L.h - pad + brandPx * 0.2);
+      ctx.fillText(brand, x0, L.h - S.bottom);
     }
 
-    const barH = wide ? 6 : 8;
-    ctx.fillStyle = rgba(P.muted.startsWith("#") ? P.muted : "#888888", 0.18);
+    const barH = Math.round(5 * T.line);
+    ctx.fillStyle = rgba(P.muted, 0.18);
     ctx.fillRect(0, L.h - barH, L.w, barH);
-    ctx.fillStyle = f.stats[0]?.color ?? P.ink;
+    ctx.fillStyle = stats[0]?.color ?? P.ink;
     ctx.fillRect(0, L.h - barH, L.w * Math.max(0, Math.min(1, progress)), barH);
     ctx.restore();
   }
@@ -181,14 +187,15 @@ export class Painter {
     P: Palette,
     stats: StatLine[],
     r: Rect,
-    labelPx: number,
-    valuePx: number,
+    T: Typography,
     alignRight: boolean,
   ): number {
+    const labelPx = T.label, valuePx = T.value;
     const colW = r.w / Math.max(1, stats.length);
     const gap = alignRight ? 0 : 24;
-    const top = alignRight ? 6 : 28;
-    const height = top + labelPx + valuePx * 1.1 + labelPx * 1.3 + (alignRight ? 0 : 26);
+    const top = alignRight ? 0 : 26;
+    const subPx = Math.round(labelPx * 0.9);
+    const height = top + labelPx + valuePx * 1.08 + subPx * 1.35 + (alignRight ? 0 : 24);
     stats.forEach((s, i) => {
       const x0 = r.x + i * colW;
       const cw = colW - (alignRight ? 0 : i < stats.length - 1 ? gap : 0);
@@ -197,13 +204,12 @@ export class Painter {
         roundRect(ctx, x0, r.y, cw, height, 22);
         ctx.fill();
       }
-      const ix = alignRight ? x0 + colW : x0 + 30;
-      const ly = r.y + top + labelPx;
+      const ix = alignRight ? x0 + colW : x0 + 28;
+      const ly = r.y + top + labelPx * 0.9;
       ctx.font = font(labelPx, 500);
-      const name = ellipsize(ctx, s.name, cw - labelPx * 2 - (alignRight ? 10 : 50));
-      const label = `${name}`;
+      const dotR = labelPx * 0.28;
+      const label = ellipsize(ctx, s.name, cw - dotR * 2 - (alignRight ? 20 : 70));
       const lw = ctx.measureText(label).width;
-      const dotR = labelPx * 0.3;
       const lx = alignRight ? ix - lw : ix + dotR * 2 + 10;
       ctx.fillStyle = s.color;
       ctx.beginPath();
@@ -214,45 +220,48 @@ export class Painter {
       ctx.font = font(valuePx, 650);
       ctx.fillStyle = P.ink;
       const val = pct(s.coverage);
-      const vy = ly + valuePx * 1.1;
+      const vy = ly + valuePx * 1.04;
       const vw = ctx.measureText(val).width;
       ctx.fillText(val, alignRight ? ix - vw : ix, vy);
-      ctx.font = font(labelPx * (alignRight ? 0.85 : 0.9));
+      ctx.font = font(subPx);
       ctx.fillStyle = P.muted;
-      const sub = alignRight ? "coverage" : `coverage${Number.isFinite(s.width) ? ` · width ${s.width.toFixed(1)}` : ""}`;
+      const sub = alignRight || !Number.isFinite(s.width) ? "coverage" : `coverage · width ${s.width.toFixed(1)}`;
       const sw = ctx.measureText(sub).width;
-      ctx.fillText(sub, alignRight ? ix - sw : ix, vy + labelPx * 1.3);
+      ctx.fillText(sub, alignRight ? ix - sw : ix, vy + subPx * 1.3);
     });
     return height;
   }
 
-  private legendItems(f: FrameState, P: Palette): LegendItem[] {
+  private legendItems(P: Palette, stats: StatLine[]): LegendItem[] {
     const lvl = this.texts.level;
-    const items: LegendItem[] = [
-      { kind: "line", color: P.ink, label: "Observed", width: 0 },
-      { kind: "dash", color: P.ink, label: "Forecast", width: 0 },
-    ];
-    const focus = f.stats[0];
-    const native = f.stats.find((s) => s.id === "native");
-    if (native) items.push({ kind: focus === native ? "fill" : "dashband", color: P.native, label: `${native.name} ${lvl}`, width: 0 });
+    const items: LegendItem[] = this.layout.shortLegend
+      ? []
+      : [
+          { kind: "line", color: P.ink, label: "Observed", width: 0 },
+          { kind: "dash", color: P.ink, label: "Forecast", width: 0 },
+        ];
+    const focus = stats[0];
+    const native = stats.find((s) => s.id === "native");
     if (focus && focus !== native) items.push({ kind: "fill", color: focus.color, label: `${focus.name} ${lvl}`, width: 0 });
+    if (native) items.push({ kind: focus === native ? "fill" : "dashband", color: P.native, label: `${native.name} ${lvl}`, width: 0 });
     items.push({ kind: "dot", color: P.miss, label: "Miss", width: 0 });
     return items;
   }
 
-  private mainChart(ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, P: Palette, f: FrameState, r: Rect, wide: boolean): void {
+  private mainChart(ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, P: Palette, f: FrameState, r: Rect, stats: StatLine[]): void {
     const [yLo, yHi] = this.y!;
-    const tickPx = wide ? 20 : 24;
-    const gutter = wide ? 58 : 66;
+    const tickPx = this.layout.type.tick;
+    ctx.font = font(tickPx);
+    const gutter = Math.ceil(ctx.measureText("100").width + 18);
     const plot: Rect = { x: r.x + gutter, y: r.y, w: r.w - gutter, h: r.h };
     const span = Math.max(1, f.x1 - f.x0);
     const px = plot.w / span;
     const X = (i: number) => plot.x + (i - f.x0 + 0.5) * px;
     const Y = (v: number) => plot.y + (1 - (v - yLo) / (yHi - yLo)) * plot.h;
-    const lw = wide ? 1 : 1.2;
+    const lw = this.layout.type.line;
 
     // Grid and y labels.
-    const ticks = niceTicks(yLo, yHi, Math.max(3, Math.round(plot.h / 140)));
+    const ticks = niceTicks(yLo, yHi, Math.max(3, Math.min(5, Math.round(plot.h / (tickPx * 4.5)))));
     const step = ticks.length > 1 ? ticks[1] - ticks[0] : 1;
     const digits = Math.max(0, -Math.floor(Math.log10(step) + 1e-9));
     ctx.font = font(tickPx);
@@ -282,7 +291,7 @@ export class Painter {
       ctx.fillRect(nowX, plot.y, Math.min(plot.x + plot.w, X(f.origin + f.median.length) + px / 2) - nowX, plot.h);
     }
 
-    const focus = f.stats[0];
+    const focus = stats[0];
     const focusNative = focus?.id === "native";
     const fcol = focus?.color ?? P.native;
 
@@ -370,7 +379,7 @@ export class Painter {
     }
     ctx.stroke();
     ctx.fillStyle = P.miss;
-    const missR = (wide ? 5.5 : 6.5) * Math.min(1, Math.max(0.6, px / 3));
+    const missR = 4.5 * lw * Math.min(1, Math.max(0.6, px / 3));
     for (const [t, , , missed] of f.past) {
       if (!missed || t < f.s0) continue;
       ctx.beginPath();
@@ -381,15 +390,15 @@ export class Painter {
     if (f.t >= 0) {
       ctx.fillStyle = P.ink;
       ctx.beginPath();
-      ctx.arc(X(f.t), Y(f.series[f.t]), 7 * lw, 0, Math.PI * 2);
+      ctx.arc(X(f.t), Y(f.series[f.t]), 5.5 * lw, 0, Math.PI * 2);
       ctx.fill();
     }
     ctx.restore();
 
     if (f.median.length) {
       ctx.strokeStyle = rgba(P.native, 0.6);
-      ctx.lineWidth = 2;
-      ctx.setLineDash([3, 7]);
+      ctx.lineWidth = 1.5 * lw;
+      ctx.setLineDash([3 * lw, 7 * lw]);
       ctx.beginPath();
       ctx.moveTo(nowX, plot.y);
       ctx.lineTo(nowX, plot.y + plot.h);
@@ -398,16 +407,19 @@ export class Painter {
       ctx.font = font(tickPx, 500);
       ctx.fillStyle = P.muted;
       const label = "forecast";
-      if (plot.x + plot.w - nowX > ctx.measureText(label).width + 28) ctx.fillText(label, nowX + 14, plot.y + tickPx + 10);
+      if (plot.x + plot.w - nowX > ctx.measureText(label).width + 20) ctx.fillText(label, nowX + 10, plot.y + tickPx + 8);
     }
   }
 
   private coverageChart(ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, P: Palette, f: FrameState, r: Rect, traces: CoverageTrace[]): void {
-    const labelPx = 24;
+    const T = this.layout.type;
+    const labelPx = T.label;
     ctx.font = font(labelPx, 500);
     ctx.fillStyle = P.muted;
-    ctx.fillText("Rolling coverage", r.x, r.y + labelPx);
-    const plot: Rect = { x: r.x + 66, y: r.y + labelPx + 22, w: r.w - 66, h: r.h - labelPx - 22 };
+    ctx.fillText(`Rolling coverage · target ${this.texts.level}`, r.x, r.y + labelPx);
+    ctx.font = font(T.tick);
+    const gutter = Math.ceil(ctx.measureText("100%").width + 18);
+    const plot: Rect = { x: r.x + gutter, y: r.y + labelPx + T.tick, w: r.w - gutter, h: r.h - labelPx - T.tick };
     let lo = f.target;
     for (const tr of traces) for (const v of tr.v) if (Number.isFinite(v)) lo = Math.min(lo, v);
     // Early rolling values rest on a handful of pairs; do not let them flatten the chart.
@@ -420,7 +432,7 @@ export class Painter {
     const Y = (v: number) => plot.y + (1 - (Math.min(cHi, Math.max(cLo, v)) - cLo) / (cHi - cLo)) * plot.h;
 
     ctx.lineWidth = 1.5;
-    ctx.font = font(22);
+    ctx.font = font(T.tick);
     for (const v of [cLo, (cLo + cHi) / 2, cHi]) {
       ctx.strokeStyle = P.grid;
       ctx.beginPath();
@@ -429,7 +441,7 @@ export class Painter {
       ctx.stroke();
       ctx.fillStyle = P.muted;
       const s = `${Math.round(v * 100)}%`;
-      ctx.fillText(s, plot.x - 14 - ctx.measureText(s).width, Y(v) + 8);
+      ctx.fillText(s, plot.x - 14 - ctx.measureText(s).width, Y(v) + T.tick * 0.35);
     }
     ctx.strokeStyle = P.ink;
     ctx.globalAlpha = 0.55;
@@ -441,16 +453,11 @@ export class Painter {
     ctx.stroke();
     ctx.setLineDash([]);
     ctx.globalAlpha = 1;
-    ctx.font = font(21, 500);
-    ctx.fillStyle = P.muted;
-    const tl = `target ${this.texts.level}`;
-    ctx.fillText(tl, plot.x + plot.w - ctx.measureText(tl).width, Y(f.target) - 10);
-
     // Native first, so the focused method is drawn on top.
     for (const tr of [...traces].sort((a, b) => Number(b.native) - Number(a.native))) {
       ctx.strokeStyle = tr.native ? P.native : tr.color;
-      ctx.lineWidth = tr.native ? 3 : 4;
-      ctx.setLineDash(tr.native && traces.length > 1 ? [7, 7] : []);
+      ctx.lineWidth = (tr.native ? 2.2 : 3) * T.line;
+      ctx.setLineDash(tr.native && traces.length > 1 ? [5 * T.line, 5 * T.line] : []);
       ctx.beginPath();
       let started = false;
       for (let i = 0; i < tr.t.length; i++) {
@@ -551,23 +558,24 @@ function ellipsize(ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingConte
   return `${t.trimEnd()}…`;
 }
 
-/** Greedy word wrap into at most `max` lines; the last line is ellipsized. */
+/** Greedy word wrap into at most `max` lines; the last line takes the rest and is ellipsized. */
 function wrap(ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, s: string, maxW: number, max: number): string[] {
   const words = s.split(/\s+/).filter(Boolean);
   const lines: string[] = [];
   let cur = "";
   for (let i = 0; i < words.length; i++) {
     const next = cur ? `${cur} ${words[i]}` : words[i];
-    if (ctx.measureText(next).width <= maxW || !cur) cur = next;
-    else {
-      lines.push(cur);
-      cur = words[i];
-      if (lines.length === max - 1) {
-        cur = words.slice(i).join(" ");
-        break;
-      }
+    if (ctx.measureText(next).width <= maxW || !cur) {
+      cur = next;
+      continue;
     }
+    if (lines.length === max - 1) {
+      cur = [cur, ...words.slice(i)].join(" ");
+      break;
+    }
+    lines.push(cur);
+    cur = words[i];
   }
   if (cur) lines.push(cur);
-  return lines.slice(0, max).map((l, i, a) => (i === a.length - 1 ? ellipsize(ctx, l, maxW) : l));
+  return lines.map((l, i, a) => (i === a.length - 1 ? ellipsize(ctx, l, maxW) : l));
 }

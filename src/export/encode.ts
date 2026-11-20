@@ -160,7 +160,7 @@ export async function encode(job: EncodeJob): Promise<EncodeResult> {
       aborted();
       if (i < frames) render(painter, replay, i);
       // The hold repeats the last frame instead of one long frame, which some players stretch badly.
-      await writer.add(i * dt, dt);
+      await writer.add(i * dt, dt, i >= frames);
       if (i % 4 === 0) {
         job.onProgress?.((i + 1) / total);
         await tick();

@@ -205,7 +205,9 @@ export function openExportDialog(req: ExportRequest): void {
     const secs = s.times.length * s.frameSec;
     const fps = Math.round(1 / s.frameSec);
     const perFrame = s.times.length > 1 ? Math.max(1, Math.round((to - from + 1) / s.times.length)) : 1;
-    meta.textContent = `${w} × ${h} · ${f === "gif" ? "GIF" : f.toUpperCase()} · ${secs.toFixed(1)} s at ${fps} fps${perFrame > 1 ? ` · ${perFrame} steps per frame` : ""}`;
+    // Instagram (feed, Stories, Reels) and TikTok take video only.
+    const note = f === "gif" && (L.id === "portrait" || L.id === "story") ? " · Instagram needs video" : "";
+    meta.textContent = `${w} × ${h} · ${f === "gif" ? "GIF" : f.toUpperCase()} · ${secs.toFixed(1)} s at ${fps} fps${perFrame > 1 ? ` · ${perFrame} steps per frame` : ""}${note}`;
     go.textContent = f === "gif" ? "Create GIF" : `Create ${f.toUpperCase()}`;
     secSel.querySelector<HTMLOptionElement>('option[value="30"]')!.disabled = f === "gif";
     if (f === "gif" && secSel.value === "30") secSel.value = "15";

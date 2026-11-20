@@ -103,3 +103,19 @@ describe("export schedule", () => {
     }
   });
 });
+
+describe("video colour conversion", () => {
+  it("writes limited-range BT.709 I420", async () => {
+    const { rgbaToI420 } = await import("../src/export/video");
+    const w = 4, h = 2;
+    const px = new Uint8ClampedArray(w * h * 4);
+    for (let i = 0; i < w * h; i++) {
+      const white = i % w < 2;
+      px.set(white ? [255, 255, 255, 255] : [0, 0, 0, 255], i * 4);
+    }
+    const out = rgbaToI420(px, w, h);
+    expect(out.length).toBe(w * h * 1.5);
+    expect([...out.slice(0, 4)]).toEqual([235, 235, 16, 16]);
+    expect([...out.slice(w * h)]).toEqual([128, 128, 128, 128]);
+  });
+});
