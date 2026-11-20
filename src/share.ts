@@ -9,9 +9,10 @@
  */
 
 import { NATIVE_ID, RANK_BY, type RankBy, type ScoreType, type Settings } from "./engine/engine";
+import { type EtsVariant, isEtsVariant } from "./model/ets";
 
 export type Align = "full" | "calibrate" | "cut";
-export type ModelRef = { backend: "naive" } | { backend: "browser" | "server"; repo: string | null };
+export type ModelRef = { backend: "naive" } | { backend: "ets"; variant: EtsVariant } | { backend: "browser" | "server"; repo: string | null };
 export type SeriesRef =
   | { kind: "empty" }
   /** The first `n` points of a preset stream; `hash` detects a preset whose data changed since. */
@@ -113,7 +114,7 @@ const canCompress = () => typeof CompressionStream !== "undefined" && typeof Dec
 /** Compact wire form; short keys keep the links short. */
 interface Wire {
   src: ["e"] | ["p", string, number, number, number] | ["v", number];
-  m: ["n"] | ["b" | "s", string | null];
+  m: ["n"] | ["e", EtsVariant] | ["b" | "s", string | null];
   h: number;
   mc: number;
   sym: 0 | 1;
@@ -141,7 +142,7 @@ export async function encodeScenario(s: Scenario): Promise<string> {
   const on = Object.keys(s.settings.enabled).filter((id) => s.settings.enabled[id]);
   const wire: Wire = {
     src: s.series.kind === "empty" ? ["e"] : s.series.kind === "preset" ? ["p", s.series.id, s.series.seed, s.series.n, s.series.hash] : ["v", s.series.offset],
-    m: s.model.backend === "naive" ? ["n"] : [s.model.backend === "browser" ? "b" : "s", s.model.repo],
+    m: s.model.backend === "naive" ? ["n"] : s.model.backend === "ets" ? ["e", s.model.variant] : [s.model.backend === "browser" ? "b" : "s", s.model.repo],
     h: s.horizon,
     mc: s.maxContext,
     sym: s.symmetric ? 1 : 0,
@@ -206,7 +207,14 @@ export async function decodeScenario(code: string, defaults: Settings): Promise<
 
   const m = Array.isArray(w.m) ? w.m : ["n"];
   const repo = typeof m[1] === "string" ? m[1] : null;
-  const model: ModelRef = m[0] === "b" ? { backend: "browser", repo } : m[0] === "s" ? { backend: "server", repo } : { backend: "naive" };
+  const model: ModelRef =
+    m[0] === "b"
+      ? { backend: "browser", repo }
+      : m[0] === "s"
+        ? { backend: "server", repo }
+        : m[0] === "e" && isEtsVariant(m[1])
+          ? { backend: "ets", variant: m[1] }
+          : { backend: "naive" };
 
   const known = Object.keys(defaults.enabled);
   const on = new Set(Array.isArray(w.on) ? w.on : []);

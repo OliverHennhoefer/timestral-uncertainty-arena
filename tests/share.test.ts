@@ -62,6 +62,17 @@ describe("scenario links", () => {
     expect(await decodeScenario(code, defaultSettings())).toEqual(s);
   });
 
+  it("carry the ETS variant and the server-only checkpoints", async () => {
+    for (const model of [
+      { backend: "ets", variant: "hw" },
+      { backend: "ets", variant: "auto" },
+      { backend: "server", repo: "google/timesfm-2.5-200m-pytorch" },
+      { backend: "server", repo: "Salesforce/moirai-2.0-R-small" },
+    ] as const) {
+      expect((await decodeScenario(await encodeScenario(scenario({ model })), defaultSettings())).model).toEqual(model);
+    }
+  });
+
   it("keep every ranking criterion", async () => {
     for (const rankBy of RANK_BY) {
       const s = scenario({ rankBy });

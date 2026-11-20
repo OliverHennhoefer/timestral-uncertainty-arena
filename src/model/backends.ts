@@ -92,7 +92,7 @@ export interface ForecastResult {
 }
 
 export interface Backend {
-  readonly kind: "browser" | "server" | "naive";
+  readonly kind: "browser" | "server" | "naive" | "classical";
   readonly label: string;
   /** Name of the model whose native quantiles this backend serves, e.g. "Chronos-Bolt". */
   readonly modelName: string;

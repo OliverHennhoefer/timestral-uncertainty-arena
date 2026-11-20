@@ -320,6 +320,7 @@ button.help {
 button.help::after { content: ""; position: absolute; inset: -7px; border-radius: 50%; }
 button.help:hover, button.help:focus { background: transparent; color: var(--ink); border-color: var(--muted); opacity: 1; }
 button.help:focus-visible { outline-offset: 2px; }
+.hint-text button.help { margin-left: 5px; vertical-align: -2px; }
 .help-pop {
   position: fixed; z-index: 60;
   width: max-content; max-width: min(264px, calc(100vw - 24px));

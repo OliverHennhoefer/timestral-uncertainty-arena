@@ -6,7 +6,8 @@ import { CalibrationProbe, pitHistogram } from "./engine/calibration";
 import { ForecastScheduler } from "./engine/scheduler";
 import { type ReliabilityCurve, maxGap, pitChart, reliabilityChart } from "./ui/calibration";
 import { type Backend, BrowserBackend, NaiveBackend, ServerBackend } from "./model/backends";
-import { FAMILY_NAMES, MODELS, type ModelFamily } from "./model/registry";
+import { ETS_VARIANTS, EtsBackend, type EtsVariant } from "./model/ets";
+import { FAMILY_NAMES, MODELS, type ModelFamily, NINE_LEVEL_FAMILIES, familyOf } from "./model/registry";
 import { DATASETS, GIFT_EVAL_GROUP } from "./datasets";
 import { type Preset, PRESETS as SYNTHETIC } from "./synthetic";
 import { type Align, HASH_KEY, type ModelRef, type Scenario, type SeriesRef, decodeScenario, encodeScenario, scenarioFromHash, seriesHash } from "./share";
@@ -1165,6 +1166,19 @@ function browserFamily(): ModelFamily {
   return $<HTMLSelectElement>("backend").value === "chronos" ? "chronos-bolt" : "timestral";
 }
 
+/** The ETS variant a backend dropdown value names ("ets-auto" -> "auto"), if any. */
+function etsVariantOf(value: string): EtsVariant | null {
+  const v = value.startsWith("ets-") ? value.slice(4) : "";
+  return v in ETS_VARIANTS ? (v as EtsVariant) : null;
+}
+
+/** Show the settings that belong to the backend dropdown value. */
+function showModelPanel(value: string) {
+  $("browser-panel").classList.toggle("hidden", value !== "browser" && value !== "chronos");
+  $("server-panel").classList.toggle("hidden", value !== "server");
+  $("ets-panel").classList.toggle("hidden", !etsVariantOf(value));
+}
+
 function setPill() {
   // The native row is named after the model that produced it.
   const native = backend.modelName;
@@ -1174,6 +1188,7 @@ function setPill() {
   }
   const pill = $("backend-pill");
   pill.textContent = (backend.kind === "naive" ? "Naive baseline" : backend.label) + (backend.ready ? "" : " · not ready");
+  pill.title = backend.kind === "classical" ? `${backend.label}, refitted before every forecast` : "";
   pill.className = `pill ${!backend.ready ? "err" : scheduler.inFlight ? "busy" : "ok"}`;
   $("latency").textContent = scheduler.lastLatency ? `${scheduler.lastLatency.toFixed(0)} ms` : "";
 }
@@ -1387,10 +1402,14 @@ function bindControls() {
   const backendSel = $<HTMLSelectElement>("backend");
   backendSel.addEventListener("change", () => {
     const inBrowser = backendSel.value === "browser" || backendSel.value === "chronos";
-    $("browser-panel").classList.toggle("hidden", !inBrowser);
-    $("server-panel").classList.toggle("hidden", backendSel.value !== "server");
+    showModelPanel(backendSel.value);
+    const ets = etsVariantOf(backendSel.value);
     if (backendSel.value === "naive") {
       backend = new NaiveBackend();
+      setPill();
+      resetForecasts();
+    } else if (ets) {
+      backend = new EtsBackend(ets);
       setPill();
       resetForecasts();
     } else if (inBrowser) {
@@ -1408,6 +1427,10 @@ function bindControls() {
   $<HTMLSelectElement>("server-model").innerHTML = (Object.keys(FAMILY_NAMES) as ModelFamily[])
     .map((f) => `<optgroup label="${FAMILY_NAMES[f]}">${MODELS.filter((m) => m.family === f).map((m) => `<option value="${m.repo}">${m.label}</option>`).join("")}</optgroup>`)
     .join("");
+  const serverModel = $<HTMLSelectElement>("server-model");
+  const tailsNote = () => $("server-tails-note").classList.toggle("hidden", !NINE_LEVEL_FAMILIES.has(familyOf(serverModel.value) ?? "timestral"));
+  serverModel.addEventListener("change", tailsNote);
+  tailsNote();
   $("btn-connect").addEventListener("click", connectServer);
   $<HTMLInputElement>("file-input").addEventListener("change", (e) => {
     const files = (e.target as HTMLInputElement).files;
@@ -1551,7 +1574,9 @@ function currentScenario(): Scenario {
       ? { backend: "server", repo: backend.repo }
       : backend.kind === "browser"
         ? { backend: "browser", repo: activeRepo }
-        : { backend: "naive" };
+        : backend instanceof EtsBackend
+          ? { backend: "ets", variant: backend.variant }
+          : { backend: "naive" };
   return {
     series,
     model,
@@ -1596,7 +1621,12 @@ async function openExport() {
   const y = engine.series;
   const preset = streamRef && y.length <= playData.length && y.every((v, i) => v === playData[i]) ? PRESETS.find((p) => p.id === streamRef!.id) : undefined;
   const repo = backend instanceof ServerBackend ? backend.repo : backend.kind === "browser" ? activeRepo : null;
-  const modelLabel = backend.kind === "naive" ? "Naive baseline" : (MODELS.find((m) => m.repo === repo)?.label ?? backend.modelName);
+  const modelLabel =
+    backend.kind === "naive"
+      ? "Naive baseline"
+      : backend instanceof EtsBackend
+        ? ETS_VARIANTS[backend.variant].label
+        : (MODELS.find((m) => m.repo === repo)?.label ?? backend.modelName);
   const { openExportDialog } = await import("./export/dialog");
   openExportDialog({
     series: y.slice(),
@@ -1637,11 +1667,13 @@ function useSharedRepo() {
 
 function selectModel(m: ModelRef) {
   const sel = $<HTMLSelectElement>("backend");
-  sel.value = m.backend;
-  $("browser-panel").classList.toggle("hidden", m.backend !== "browser");
-  $("server-panel").classList.toggle("hidden", m.backend !== "server");
+  sel.value =
+    m.backend === "ets" ? `ets-${m.variant}` : m.backend === "browser" && m.repo && familyOf(m.repo) === "chronos-bolt" ? "chronos" : m.backend;
+  showModelPanel(sel.value);
   if (m.backend === "naive") {
     if (backend.kind !== "naive") backend = new NaiveBackend();
+  } else if (m.backend === "ets") {
+    if (!(backend instanceof EtsBackend && backend.variant === m.variant)) backend = new EtsBackend(m.variant);
   } else if (m.backend === "browser") {
     const existed = browserBackend !== null;
     backend = ensureBrowserBackend();
@@ -1657,6 +1689,7 @@ function selectModel(m: ModelRef) {
   } else {
     const repo = m.repo && MODELS.some((x) => x.repo === m.repo) ? m.repo : MODELS[0].repo;
     $<HTMLSelectElement>("server-model").value = repo;
+    $<HTMLSelectElement>("server-model").dispatchEvent(new Event("change"));
     backend = new ServerBackend($<HTMLInputElement>("server-url").value, repo);
     setPanel(true);
     toast(`This scenario used ${repo} on the local server. Run server/serve.py and press Connect to replay it.`, 10000);

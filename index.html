@@ -30,12 +30,23 @@
             <h3 id="model-heading">Model</h3>
             <label class="field">
               <select id="backend" aria-label="Forecast model">
-                <option value="naive">Naive baseline</option>
-                <option value="browser">Timestral · browser</option>
-                <option value="chronos">Chronos-Bolt · browser</option>
-                <option value="server">Local server</option>
+                <optgroup label="Classical · browser">
+                  <option value="naive">Naive baseline</option>
+                  <option value="ets-auto">Auto ETS</option>
+                  <option value="ets-ses">Simple exponential smoothing</option>
+                  <option value="ets-damped">Damped trend (Holt)</option>
+                  <option value="ets-hw">Holt-Winters seasonal</option>
+                </optgroup>
+                <optgroup label="Foundation models">
+                  <option value="browser">Timestral · browser</option>
+                  <option value="chronos">Chronos-Bolt · browser</option>
+                  <option value="server">Local server · all models</option>
+                </optgroup>
               </select>
             </label>
+            <div id="ets-panel" class="hidden">
+              <p class="hint-text">Refitted to the context before every forecast. Holt-Winters and Auto ETS find the season length in the data.<button class="help" aria-label="About the ETS models" data-tip="Exponential smoothing with additive errors, so each band is Gaussian. Simple smoothing tracks a level; the damped trend adds a slope that flattens out; Holt-Winters adds a repeating season. Auto ETS tries all of them, with and without a season, and keeps the one with the lowest AICc. The model in use is shown at the top of the chart.">?</button></p>
+            </div>
             <div id="browser-panel" class="hidden">
               <div id="model-list"></div>
               <p class="hint-text hidden" id="bolt-note">Native coverage beyond 80% uses estimated tails.</p>
@@ -50,7 +61,8 @@
               <label class="field">Server URL <input id="server-url" type="url" value="http://127.0.0.1:8765" /></label>
               <label class="field">Checkpoint <select id="server-model"></select></label>
               <button id="btn-connect" class="wide">Connect</button>
-              <p class="hint-text">Start your server with <code>python server/serve.py</code>.</p>
+              <p class="hint-text hidden" id="server-tails-note">Native coverage beyond 80% uses estimated tails.</p>
+              <p class="hint-text">Start your server with <code>python server/serve.py</code>. Chronos-2, TimesFM and Moirai run on the server only.</p>
             </div>
           </section>
 
