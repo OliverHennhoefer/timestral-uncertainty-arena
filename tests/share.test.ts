@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { defaultSettings } from "../src/engine/engine";
+import { RANK_BY, defaultSettings } from "../src/engine/engine";
 import { type Scenario, decodeScenario, encodeScenario, packValues, scenarioFromHash, seriesHash, unpackValues } from "../src/share";
 import { PRESETS } from "../src/synthetic";
 
@@ -17,6 +17,7 @@ function scenario(over: Partial<Scenario> = {}): Scenario {
     rankBy: "interval_score",
     rankLead: 0,
     focus: "aci",
+    shown: ["native", "aci"],
     ...over,
   };
 }
@@ -61,6 +62,13 @@ describe("scenario links", () => {
     expect(await decodeScenario(code, defaultSettings())).toEqual(s);
   });
 
+  it("keep every ranking criterion", async () => {
+    for (const rankBy of RANK_BY) {
+      const s = scenario({ rankBy });
+      expect((await decodeScenario(await encodeScenario(s), defaultSettings())).rankBy).toBe(rankBy);
+    }
+  });
+
   it("carry a drawn series and its offset", async () => {
     const values = Array.from({ length: 800 }, (_, t) => Math.round((50 + 30 * Math.sin(t / 20)) * 100) / 100);
     const s = scenario({ series: { kind: "values", values, offset: 37 } });
@@ -93,6 +101,20 @@ describe("scenario links", () => {
     expect(back.settings.window).toBe(10);
     expect("ghost" in back.settings.enabled).toBe(false);
     expect("ghost" in back.settings.params).toBe(false);
+  });
+
+  it("carry the overlaid intervals in order and drop unknown ones", async () => {
+    const s = scenario({ focus: "dtaci", shown: ["split", "native", "ghost", "aci", "dtaci"] });
+    const back = await decodeScenario(await encodeScenario(s), defaultSettings());
+    expect(back.shown).toEqual(["split", "native", "aci", "dtaci"]);
+  });
+
+  it("show the native fan and the focused method for links made before overlays", async () => {
+    const wire = { src: ["e"], m: ["n"], h: 64, mc: 256, sym: 1, clip: 1, al: "cut", a: 0.1, k: 16, sc: "cqr", w: 100, wu: 10, r: 100, on: ["aci", "split"], p: {}, rb: "interval_score", rl: 0, f: "split" };
+    const code = "1p" + btoa(JSON.stringify(wire)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    const back = await decodeScenario(code, defaultSettings());
+    expect(back.focus).toBe("split");
+    expect(back.shown).toEqual(["native", "split"]);
   });
 
   it("reject garbage", async () => {

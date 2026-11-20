@@ -4,7 +4,7 @@ Draw a time series with the mouse. [Timestral](https://huggingface.co/collection
 
 ![Timestral workspace](docs/dashboard.jpg)
 
-The light, monochrome workspace keeps the chart in focus. Pick an example, model, horizon and coverage in Settings. Rolling split CP, ACI and DtACI are compared by default; additional methods and advanced settings are collapsed. Charts show the focused method alongside the native forecast, while the comparison scores every selected method.
+The light, monochrome workspace keeps the chart in focus. Pick an example, model, horizon and coverage in Settings. Rolling split CP, ACI and DtACI are compared by default; additional methods and advanced settings are collapsed. The chips under the chart show or hide each method's interval, so several ribbons can be overlaid; the one you turned on last is in front, filled and with its misses marked, and **All** shows every enabled method at once. The coverage and width charts follow the same selection, while the comparison scores every enabled method.
 
 Use the overview to pan or resize the visible range. **Fit** resets both axes; **Latest** follows new points. With a chart focused, arrow keys pan, `+` / `−` zoom, `0` fits and `End` returns to the latest point. Drawn strokes only extend the series. **Analysis** opens per-step coverage and calibration charts.
 
@@ -12,7 +12,7 @@ A separate leaderboard (`leaderboard.html`) ranks every method on every bundled 
 
 The demo uses the built-in naive baseline. Pick a Timestral checkpoint (5M to 209M) in the settings panel to forecast with the real model.
 
-**Copy link** puts the current scenario in the URL: the drawn series (or the stream and its seed), the model, the enabled methods and their parameters, the score, α, the leads and the horizon alignment. Opening the link restores those settings and replays the series, so every forecast is issued and scored again. A Timestral checkpoint is loaded automatically if it is already in the browser cache; otherwise the page asks before downloading it.
+**Copy link** puts the current scenario in the URL: the drawn series (or the stream and its seed), the model, the enabled methods and their parameters, the intervals shown on the chart, the score, α, the leads and the horizon alignment. Opening the link restores those settings and replays the series, so every forecast is issued and scored again. A Timestral checkpoint is loaded automatically if it is already in the browser cache; otherwise the page asks before downloading it.
 
 **Export GIF or video** (at the bottom of the settings panel) replays the current run in a layout made for sharing: slides (16:9), posts (16:9), square, portrait (4:5) and stories (9:16), with large type, thick lines, the focused method against the native interval and the live coverage. It renders in the browser as a GIF or, where WebCodecs is available, an MP4 (WebM as a fallback). No model is needed for this: the stored forecasts are replayed.
 
@@ -32,7 +32,7 @@ python server/serve.py --port 8765
 
 ## Methods
 
-Rolling split CP, ACI, DtACI, AgACI, quantile tracker, conformal PID, NexCP, ECI, SF-OGD, SAOCP, Bayesian belief CP, BOCPD (+ ACI), changepoint CP and discounted Bayes, all compared with the model's native quantile interval. Chronos-Bolt predicts only the 10–90% quantiles, so its native band beyond 80% extends each tail with a Gaussian shape fitted to that side. References are listed with each method in the settings panel.
+Rolling split CP, ACI, DtACI, AgACI, quantile tracker, conformal PID, NexCP, ECI, SF-OGD, SAOCP, Bayesian belief CP, BOCPD (+ ACI), changepoint CP, discounted Bayes and MultiQT (off by default; it recalibrates all of the model's quantile levels at once and keeps them from crossing), all compared with the model's native quantile interval. A separate "Variants" group (off by default) holds changes that are not in the papers: ACI, DtACI and AgACI with the step size divided by the lead (paper ACI learns of a miss at lead k only k steps later, so it can overshoot and make long leads spike), and ACI with one level shared across all leads. Chronos-Bolt predicts only the 10–90% quantiles, so its native band beyond 80% extends each tail with a Gaussian shape fitted to that side. References are listed with each method in the settings panel.
 
 Analysis shows a PIT histogram of the native forecast and a reliability curve (nominal against empirical coverage over several α) for the native quantiles and the focused method, computed online from the same scored pairs.
 

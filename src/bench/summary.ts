@@ -97,6 +97,12 @@ export function toCsv(result: BenchResult): string {
 const pct = (v: number) => `${(100 * v).toFixed(1)}%`;
 const list = (a: string[]) => (a.length <= 1 ? a.join("") : `${a.slice(0, -1).join(", ")} and ${a[a.length - 1]}`);
 
+/** "default method parameters", or the overrides of this run. */
+export function paramNote(result: BenchResult): string {
+  const over = Object.entries(result.config.params ?? {}).flatMap(([id, p]) => Object.entries(p).map(([k, v]) => `${id}.${k} = ${v}`));
+  return over.length ? `default method parameters except ${over.join(", ")}` : "default method parameters";
+}
+
 export interface Findings {
   findings: string[];
   caveats: string[];
@@ -196,7 +202,7 @@ export function findings(result: BenchResult): Findings {
   const short = ds.filter((d) => d.points < 400);
   if (short.length) caveats.push(`${list(short.map((d) => `${d.label} (${d.points} points)`))} ${short.length === 1 ? "is" : "are"} short; ${short.length === 1 ? "its" : "their"} ranks rest on few independent stretches and many rows tie.`);
   caveats.push(
-    `One configuration: α = ${result.config.alpha}, ${result.config.scoreType.toUpperCase()} score, leads 1–${result.config.evalLeads}, window ${result.config.window}, warm-up ${result.config.warmup}, default method parameters. "Significantly" means the 95% paired block-bootstrap interval of the score difference excludes zero, with no correction for testing many methods on many datasets.`,
+    `One configuration: α = ${result.config.alpha}, ${result.config.scoreType.toUpperCase()} score, leads 1–${result.config.evalLeads}, window ${result.config.window}, warm-up ${result.config.warmup}, ${paramNote(result)}. "Significantly" means the 95% paired block-bootstrap interval of the score difference excludes zero, with no correction for testing many methods on many datasets.`,
   );
   caveats.push("Ranks are by mean interval (Winkler) score, which rewards narrow intervals and penalises misses by 2/α times the miss distance; a method can rank well with coverage somewhat below target.");
   return { findings: out, caveats };

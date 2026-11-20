@@ -5,7 +5,8 @@
  * once the truth is known. The engine turns `q` into an interval through the score function.
  */
 
-import { ScoreHistory, pinball } from "./window";
+import { ScoreHistory, aciErr, pinball } from "./window";
+import { MultiQT, type QuantileMethod } from "./multiqt";
 import { BOCPDACI, BOCPDQuantile, BayesianBelief, ChangepointCP, DiscountedBayes, ECI, SAOCP, SFOGD } from "./extra";
 
 export interface OnlineMethod {
@@ -23,6 +24,17 @@ export interface ParamSpec {
   help?: string;
 }
 
+/**
+ * Where a method instance sits: its forecast lead (1-based) and a map shared by every lead of
+ * one engine side, for variants that pool information across leads.
+ */
+export interface MethodContext {
+  lead: number;
+  shared: Map<string, unknown>;
+}
+
+const soloContext = (): MethodContext => ({ lead: 1, shared: new Map() });
+
 export interface MethodSpec {
   id: string;
   name: string;
@@ -30,14 +42,26 @@ export interface MethodSpec {
   reference: string;
   summary: string;
   params: ParamSpec[];
-  /** "bayesian" for methods built on a probabilistic model of the score (grouped in the UI). */
-  family?: "conformal" | "bayesian";
+  /**
+   * "bayesian" for methods built on a probabilistic model of the score, "variant" for
+   * modifications of a published method that are not in the paper (grouped in the UI).
+   */
+  family?: "conformal" | "bayesian" | "variant";
   /** False for purely model-based methods without a distribution-free coverage guarantee. */
   guarantee?: boolean;
   /** Switched on in fresh settings (default true). */
   defaultOn?: boolean;
-  create(history: ScoreHistory, alpha: number, params: Record<string, number>): OnlineMethod;
+  create(history: ScoreHistory, alpha: number, params: Record<string, number>, ctx: MethodContext): OnlineMethod;
+  /**
+   * Set for quantile-level methods (see multiqt.ts): they recalibrate the model's whole
+   * quantile vector per lead instead of a scalar threshold, and `create` is never called.
+   */
+  quantile?(levels: readonly number[], params: Record<string, number>, ctx: MethodContext): QuantileMethod;
 }
+
+const notScalar = (): never => {
+  throw new Error("quantile-level method: use spec.quantile");
+};
 
 /** Rolling split conformal: empirical quantile of the last W scores. */
 class RollingSplit implements OnlineMethod {
@@ -48,7 +72,19 @@ class RollingSplit implements OnlineMethod {
   update(): void {}
 }
 
-/** Adaptive Conformal Inference (Gibbs & Candès, 2021). */
+/**
+ * Adaptive Conformal Inference (Gibbs & Candès, 2021): alpha_t <- alpha_t + gamma (alpha - err_t).
+ *
+ * When alpha_t is too small for the window (the conformal quantile is +inf) the paper's set is
+ * the whole line, which cannot miss; when alpha_t >= 1 it is empty, which always misses. err_t
+ * is taken against that set, and only the threshold handed to the engine is capped (so it can
+ * be drawn). With one-step feedback this keeps alpha_t in [-gamma, 1 + gamma] (Lemma 4.1).
+ *
+ * Lead k gets its feedback k steps late, so up to k forecasts issued at the old alpha_t can
+ * miss before the first miss arrives: after a shift alpha_t can fall to about -(k - 1) gamma
+ * and the lead stays at the cap for roughly (k - 1) / alpha steps. That is the multi-step
+ * (delayed-feedback) form of ACI, not a defect, but it makes long leads spike.
+ */
 class ACI implements OnlineMethod {
   private alphaT: number;
   private pending = new Map<number, number>();
@@ -56,16 +92,54 @@ class ACI implements OnlineMethod {
     this.alphaT = alpha;
   }
   predict(key: number): number {
-    const q = this.h.cap(this.h.conformalQuantile(1 - this.alphaT));
-    this.pending.set(key, q);
-    return q;
+    const raw = this.h.conformalQuantile(1 - this.alphaT);
+    this.pending.set(key, raw);
+    return this.h.cap(raw);
   }
   update(key: number, s: number): void {
-    const q = this.pending.get(key);
-    if (q === undefined) return;
+    const raw = this.pending.get(key);
+    if (raw === undefined) return;
     this.pending.delete(key);
-    const err = s > q ? 1 : 0;
-    this.alphaT += this.gamma * (this.alpha - err);
+    this.alphaT += this.gamma * (this.alpha - aciErr(s, raw));
+  }
+}
+
+/** The working level shared by every lead of a `SharedACI`. */
+class SharedLevel {
+  alphaT: number;
+  /** Leads sharing the level; each feedback moves it by gamma / members. */
+  members = 0;
+  constructor(alpha: number) {
+    this.alphaT = alpha;
+  }
+}
+
+/**
+ * Variant (not in the paper): one ACI level alpha_t shared by all leads. Every lead's feedback
+ * moves it, with step gamma / (number of leads), so a shift seen at lead 1 widens all leads at
+ * once instead of each lead waiting k steps for its own misses. Each lead still takes the
+ * quantile of its own score window. The usual ACI argument bounds the shared level, so the
+ * long-run guarantee holds for coverage pooled over leads, not for each lead separately.
+ */
+class SharedACI implements OnlineMethod {
+  private level: SharedLevel;
+  private pending = new Map<number, number>();
+  constructor(private h: ScoreHistory, private alpha: number, private gamma: number, ctx: MethodContext) {
+    let level = ctx.shared.get("aci_shared") as SharedLevel | undefined;
+    if (!level) ctx.shared.set("aci_shared", (level = new SharedLevel(alpha)));
+    level.members++;
+    this.level = level;
+  }
+  predict(key: number): number {
+    const raw = this.h.conformalQuantile(1 - this.level.alphaT);
+    this.pending.set(key, raw);
+    return this.h.cap(raw);
+  }
+  update(key: number, s: number): void {
+    const raw = this.pending.get(key);
+    if (raw === undefined) return;
+    this.pending.delete(key);
+    this.level.alphaT += (this.gamma / this.level.members) * (this.alpha - aciErr(s, raw));
   }
 }
 
@@ -91,7 +165,8 @@ class DtACI implements OnlineMethod {
     this.eta = Math.sqrt(3 / interval) * Math.sqrt((Math.log(k * interval) + 2) / ((1 - alpha) ** 2 * alpha ** 3));
   }
   predict(key: number): number {
-    const qs = this.alphas.map((a) => this.h.cap(this.h.conformalQuantile(1 - a)));
+    // Experts are plain ACI: their misses are measured against the uncapped quantile.
+    const qs = this.alphas.map((a) => this.h.conformalQuantile(1 - a));
     this.pending.set(key, qs);
     let a = 0;
     for (let i = 0; i < this.alphas.length; i++) a += this.weights[i] * this.alphas[i];
@@ -115,8 +190,7 @@ class DtACI implements OnlineMethod {
     }
     for (let i = 0; i < k; i++) {
       this.weights[i] = total > 0 && Number.isFinite(total) ? (1 - this.sigma) * (this.weights[i] / total) + this.sigma / k : 1 / k;
-      const err = s > qs[i] ? 1 : 0;
-      this.alphas[i] += this.gammas[i] * (this.alpha - err);
+      this.alphas[i] += this.gammas[i] * (this.alpha - aciErr(s, qs[i]));
     }
   }
 }
@@ -130,20 +204,19 @@ class DtACI implements OnlineMethod {
 class AgACI implements OnlineMethod {
   private alphas: number[];
   private logW: number[];
-  private pending = new Map<number, number[]>();
+  /** Per issued key: the experts' capped thresholds (aggregated) and raw quantiles (for err). */
+  private pending = new Map<number, { qs: number[]; raw: number[] }>();
   private t = 0;
   constructor(private h: ScoreHistory, private alpha: number, private gammas: number[]) {
     this.alphas = gammas.map(() => alpha);
     this.logW = gammas.map(() => 0);
   }
-  private expertQ(a: number): number {
-    const q = this.h.conformalQuantile(1 - a);
-    const cap = this.h.maxAbsScore;
-    return Number.isFinite(q) ? q : q > 0 ? cap : -cap;
-  }
   predict(key: number): number {
-    const qs = this.alphas.map((a) => this.expertQ(a));
-    this.pending.set(key, qs);
+    const raw = this.alphas.map((a) => this.h.conformalQuantile(1 - a));
+    // Infinite expert bounds enter the aggregation as the largest score seen (Zaffran et al.).
+    const cap = this.h.maxAbsScore;
+    const qs = raw.map((q) => (Number.isFinite(q) ? q : q > 0 ? cap : -cap));
+    this.pending.set(key, { qs, raw });
     const mx = Math.max(...this.logW);
     let num = 0, den = 0;
     for (let i = 0; i < qs.length; i++) {
@@ -154,16 +227,16 @@ class AgACI implements OnlineMethod {
     return this.h.count === 0 ? Infinity : num / den;
   }
   update(key: number, s: number): void {
-    const qs = this.pending.get(key);
-    if (!qs) return;
+    const p = this.pending.get(key);
+    if (!p) return;
     this.pending.delete(key);
+    const { qs, raw } = p;
     this.t++;
     const scale = Math.max(this.h.recentRange(200), 1e-12);
     const eta = Math.sqrt((8 * Math.log(qs.length)) / this.t) / scale;
     for (let i = 0; i < qs.length; i++) {
       this.logW[i] -= eta * pinball(s, qs[i], 1 - this.alpha);
-      const err = s > qs[i] ? 1 : 0;
-      this.alphas[i] += this.gammas[i] * (this.alpha - err);
+      this.alphas[i] += this.gammas[i] * (this.alpha - aciErr(s, raw[i]));
     }
   }
 }
@@ -430,7 +503,68 @@ export const METHODS: MethodSpec[] = [
     params: [{ key: "delta", label: "Discount δ", min: 0.8, max: 0.9999, step: 0.0001, default: 0.98, help: "Keeps about 1/(1−δ) effective observations." }],
     create: (h, alpha, p) => new DiscountedBayes(h, alpha, p.delta),
   },
+  {
+    id: "multiqt",
+    name: "MultiQT",
+    color: "#1D9A6C",
+    reference: "Ding, Gibbs & Tibshirani, arXiv:2512.23671 (2025)",
+    summary: "Quantile tracker on every quantile level of the model at once: each level gets an offset θ ← θ − η(1{y ≤ q} − level), and the shifted quantiles are projected back to a non-crossing order. Works on the quantiles directly, so the score and window settings do not apply.",
+    defaultOn: false,
+    params: [{ key: "lr", label: "Learning rate", min: 0.01, max: 1, step: 0.01, default: 0.1, help: "Step as a fraction of the 90% quantile of the model's recent absolute quantile errors (paper: 0.1, floored at 0.1)." }],
+    create: notScalar,
+    quantile: (levels, p) => new MultiQT(levels, p.lr),
+  },
+  // Variants: changes to the methods above that are not in their papers. Off by default.
+  {
+    id: "aci_lead",
+    name: "ACI · lead-scaled γ",
+    color: "#FF6A00",
+    reference: "Variant of Gibbs & Candès 2021; step / delay as in online learning with delayed feedback",
+    summary: "ACI with step γ/k at lead k. Lead k learns of a miss k steps late, so paper ACI can overshoot by about kγ after a shift; dividing by k keeps the horizon smooth.",
+    family: "variant",
+    defaultOn: false,
+    params: [{ key: "gamma", label: "γ step (lead 1)", min: 0.001, max: 0.2, step: 0.001, default: 0.01 }],
+    create: (h, alpha, p, ctx) => new ACI(h, alpha, p.gamma / ctx.lead),
+  },
+  {
+    id: "aci_shared",
+    name: "ACI · shared α",
+    color: "#E0A040",
+    reference: "Variant of Gibbs & Candès 2021",
+    summary: "One ACI level α_t for all leads, moved by every lead's feedback, so a shift seen at lead 1 widens the whole horizon at once. Guarantee is for coverage pooled over leads.",
+    family: "variant",
+    defaultOn: false,
+    params: [{ key: "gamma", label: "γ step", min: 0.001, max: 0.2, step: 0.001, default: 0.01 }],
+    create: (h, alpha, p, ctx) => new SharedACI(h, alpha, p.gamma, ctx),
+  },
+  {
+    id: "dtaci_lead",
+    name: "DtACI · lead-scaled γ",
+    color: "#7A5F3E",
+    reference: "Variant of Gibbs & Candès, JMLR 2024",
+    summary: "DtACI with its γ grid divided by the lead k, for the same reason as ACI · lead-scaled γ.",
+    family: "variant",
+    defaultOn: false,
+    params: [{ key: "interval", label: "Interval I", min: 10, max: 1000, step: 10, default: 100, help: "Local-regret interval that sets η and σ." }],
+    create: (h, alpha, p, ctx) => new DtACI(h, alpha, DEFAULT_GAMMAS.map((g) => g / ctx.lead), p.interval),
+  },
+  {
+    id: "agaci_lead",
+    name: "AgACI · lead-scaled γ",
+    color: "#1F7F91",
+    reference: "Variant of Zaffran et al., ICML 2022",
+    summary: "AgACI with its γ grid divided by the lead k, for the same reason as ACI · lead-scaled γ.",
+    family: "variant",
+    defaultOn: false,
+    params: [],
+    create: (h, alpha, _p, ctx) => new AgACI(h, alpha, DEFAULT_GAMMAS.map((g) => g / ctx.lead)),
+  },
 ];
+
+/** Create a method outside an engine (tests, tools): lead 1 with nothing shared. */
+export function createSolo(spec: MethodSpec, h: ScoreHistory, alpha: number, params: Record<string, number> = defaultParams(spec)): OnlineMethod {
+  return spec.create(h, alpha, params, soloContext());
+}
 
 export function defaultParams(spec: MethodSpec): Record<string, number> {
   return Object.fromEntries(spec.params.map((p) => [p.key, p.default]));

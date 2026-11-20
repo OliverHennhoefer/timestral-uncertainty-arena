@@ -8,7 +8,7 @@
  * so links work on GitHub Pages and stay private to whoever holds them.
  */
 
-import type { RankBy, ScoreType, Settings } from "./engine/engine";
+import { NATIVE_ID, RANK_BY, type RankBy, type ScoreType, type Settings } from "./engine/engine";
 
 export type Align = "full" | "calibrate" | "cut";
 export type ModelRef = { backend: "naive" } | { backend: "browser" | "server"; repo: string | null };
@@ -32,6 +32,8 @@ export interface Scenario {
   rankBy: RankBy;
   rankLead: number;
   focus: string;
+  /** Intervals drawn on the chart, the focused one last. */
+  shown: string[];
 }
 
 export const HASH_KEY = "s";
@@ -129,6 +131,8 @@ interface Wire {
   rb: RankBy;
   rl: number;
   f: string;
+  /** Intervals on the chart, focused last; absent in older links (native and focus only). */
+  sh?: string[];
 }
 
 export async function encodeScenario(s: Scenario): Promise<string> {
@@ -153,6 +157,7 @@ export async function encodeScenario(s: Scenario): Promise<string> {
     rb: s.rankBy,
     rl: s.rankLead,
     f: s.focus,
+    sh: s.shown,
   };
   const head = new TextEncoder().encode(JSON.stringify(wire));
   let raw = head;
@@ -220,6 +225,11 @@ export async function decodeScenario(code: string, defaults: Settings): Promise<
     enabled: Object.fromEntries(known.map((id) => [id, on.has(id)])),
     params,
   };
+  const focus = typeof w.f === "string" ? w.f : "aci";
+  // Older links drew the native fan and the focused method only.
+  const ids = [NATIVE_ID, ...known];
+  const listed: unknown[] = Array.isArray(w.sh) ? w.sh : [NATIVE_ID, focus];
+  const shown = [...new Set(listed.filter((id): id is string => typeof id === "string" && ids.includes(id)))];
   const align: Align = w.al === "full" || w.al === "calibrate" ? w.al : "cut";
   return {
     series,
@@ -231,9 +241,10 @@ export async function decodeScenario(code: string, defaults: Settings): Promise<
     align,
     leadsBefore: w.lb === undefined ? null : intIn(w.lb, 1, 128, defaults.evalLeads),
     settings,
-    rankBy: (["interval_score", "validity_then_width", "rolling_gap"] as RankBy[]).includes(w.rb as RankBy) ? (w.rb as RankBy) : "interval_score",
+    rankBy: RANK_BY.includes(w.rb as RankBy) ? (w.rb as RankBy) : "interval_score",
     rankLead: intIn(w.rl, 0, settings.evalLeads, 0),
-    focus: typeof w.f === "string" ? w.f : "aci",
+    focus,
+    shown,
   };
 }
 
