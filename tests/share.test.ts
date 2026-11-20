@@ -69,6 +69,13 @@ describe("scenario links", () => {
     }
   });
 
+  it("open links that name a retired ranking with the default", async () => {
+    for (const old of ["validity_then_width", "penalized"]) {
+      const s = scenario({ rankBy: old as never });
+      expect((await decodeScenario(await encodeScenario(s), defaultSettings())).rankBy).toBe("valid_then_shape");
+    }
+  });
+
   it("carry a drawn series and its offset", async () => {
     const values = Array.from({ length: 800 }, (_, t) => Math.round((50 + 30 * Math.sin(t / 20)) * 100) / 100);
     const s = scenario({ series: { kind: "values", values, offset: 37 } });

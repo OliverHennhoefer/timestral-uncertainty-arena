@@ -38,6 +38,8 @@ export interface Scenario {
 
 export const HASH_KEY = "s";
 const VERSION = "1";
+/** Rankings that older links may name and that have since been replaced by the default. */
+const LEGACY_RANK_BY = ["validity_then_width", "penalized"];
 const SCALE = 100; // drawn points are rounded to hundredths
 
 /** FNV-1a over the values in hundredths. */
@@ -241,7 +243,9 @@ export async function decodeScenario(code: string, defaults: Settings): Promise<
     align,
     leadsBefore: w.lb === undefined ? null : intIn(w.lb, 1, 128, defaults.evalLeads),
     settings,
-    rankBy: RANK_BY.includes(w.rb as RankBy) ? (w.rb as RankBy) : "interval_score",
+    // Links made before the coverage test replaced the 2-point gate and the penalized score
+    // carry rankings that no longer exist; they open with the default.
+    rankBy: RANK_BY.includes(w.rb as RankBy) ? (w.rb as RankBy) : LEGACY_RANK_BY.includes(String(w.rb)) ? "valid_then_shape" : "interval_score",
     rankLead: intIn(w.rl, 0, settings.evalLeads, 0),
     focus,
     shown,

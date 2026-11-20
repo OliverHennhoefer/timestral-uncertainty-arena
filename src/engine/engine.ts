@@ -13,7 +13,7 @@
 import { METHODS, type MethodSpec, type OnlineMethod, defaultParams } from "../conformal/methods";
 import type { QuantileMethod } from "../conformal/multiqt";
 import { ScoreHistory } from "../conformal/window";
-import { type ArrivalSeries, type Uncertainty, blockBootstrap, indistinguishable, interval95 } from "./bootstrap";
+import { type ArrivalSeries, type Uncertainty, blockBootstrap, indistinguishable } from "./bootstrap";
 
 export type ScoreType = "cqr" | "cqr_asym" | "abs" | "scaled";
 
@@ -80,15 +80,37 @@ export interface MethodMetrics {
   /** Sums per arrival with evaluations (aligned with `Engine.traceT`), for rolling windows and the bootstrap. */
   arr: { n: number[]; cov: number[]; width: number[]; is: number[] };
   /**
-   * Per lead (index k - 1): one entry per evaluated pair, in arrival order. `excess` is how
-   * far the value fell outside the interval (negative: how far inside the nearer bound).
+   * Per lead (index k - 1): one entry per evaluated pair, in arrival order. `below` is how far
+   * the value fell under the lower bound and `above` how far over the upper bound (negative:
+   * how far inside that bound). Their sum is minus the interval's width, also when the bounds
+   * cross and `width` is clamped to zero.
    */
-  lead: { t: number[]; cov: number[]; width: number[]; is: number[]; excess: number[] }[];
+  lead: LeadPairs[];
   /** Running sums over arrivals in the last `rolling` time steps; `from` indexes `arr`. */
   roll: { n: number; cov: number; width: number; from: number };
   /** Rolling coverage / width after each arrival with evaluations. */
   covTrace: number[];
   widthTrace: number[];
+}
+
+/** The evaluated pairs of one method at one lead. */
+export interface LeadPairs {
+  t: number[];
+  cov: number[];
+  width: number[];
+  is: number[];
+  below: number[];
+  above: number[];
+}
+
+/** What `fitLead` derives from one lead's pairs; cached until the lead gets a new pair. */
+interface LeadFit {
+  n: number;
+  /** Margin that minimises the lead's interval score, and the summed score at that margin. */
+  margin: number;
+  shapeSum: number;
+  /** Summed width at the margin that covers exactly the target share of the lead's pairs. */
+  widthSum: number;
 }
 
 export interface MetricsRow {
@@ -99,24 +121,21 @@ export interface MetricsRow {
   meanWidth: number;
   rollingWidth: number;
   intervalScore: number;
-  /** Interval score scaled up by how much more often than alpha the method misses. */
-  penalizedScore: number;
   /**
-   * Mean width after moving every bound out (or in) by one common margin, chosen so that the
-   * target share of the pairs is covered: sharpness compared at equal coverage.
+   * Interval score after moving both bounds out (or in) by one margin per lead, chosen in
+   * hindsight to minimise that lead's score. At that margin the lead misses alpha of the
+   * time, so this compares the shape of the intervals with their level set right.
+   */
+  shapeScore: number;
+  /** `intervalScore - shapeScore`, never negative: what the wrong level costs in score units. */
+  levelCost: number;
+  /**
+   * Mean width after moving both bounds out (or in) by one margin per lead, chosen so that
+   * the target share of that lead's pairs is covered: sharpness compared at equal coverage.
    */
   widthAtTarget: number;
   /** Lowest coverage over any full rolling window of `rolling` time steps (NaN until one fills). */
   worstCoverage: number;
-}
-
-/**
- * Interval score with an explicit miscoverage penalty: multiplied by miss rate / alpha when
- * a method misses more often than alpha. The interval score alone charges a miss only by its
- * distance, so many small misses cost little and a too-narrow interval can still win.
- */
-export function penalizedScore(intervalScore: number, coverage: number, alpha: number): number {
-  return intervalScore * Math.max(1, (1 - coverage) / alpha);
 }
 
 /** k-th smallest value (0-based) of `a`, which is reordered in place (quickselect). */
@@ -140,19 +159,117 @@ function kthSmallest(a: Float64Array, k: number): number {
   return a[k];
 }
 
-/** See `MetricsRow.widthAtTarget`. Each part is one lead's `excess` and `width` arrays. */
-export function widthAtTarget(parts: { excess: ArrayLike<number>; width: ArrayLike<number> }[], target: number): number {
-  let n = 0;
-  for (const p of parts) n += p.excess.length;
+/**
+ * Smallest value whose cumulative weight (`before` plus the summed weights of all values up to
+ * and including it) reaches `target`. Both arrays are reordered in place (weighted quickselect).
+ */
+function weightedSelect(v: Float64Array, w: Float64Array, target: number, before = 0): number {
+  let lo = 0, hi = v.length - 1;
+  while (lo < hi) {
+    const pivot = v[(lo + hi) >> 1];
+    // Three-way partition of [lo, hi] into < pivot, = pivot, > pivot.
+    let lt = lo, i = lo, gt = hi;
+    while (i <= gt) {
+      if (v[i] < pivot) {
+        const tv = v[i]; v[i] = v[lt]; v[lt] = tv;
+        const tw = w[i]; w[i] = w[lt]; w[lt] = tw;
+        i++; lt++;
+      } else if (v[i] > pivot) {
+        const tv = v[i]; v[i] = v[gt]; v[gt] = tv;
+        const tw = w[i]; w[i] = w[gt]; w[gt] = tw;
+        gt--;
+      } else i++;
+    }
+    let less = 0, equal = 0;
+    for (let j = lo; j < lt; j++) less += w[j];
+    for (let j = lt; j <= gt; j++) equal += w[j];
+    if (before + less >= target) hi = lt - 1;
+    else if (before + less + equal >= target) return pivot;
+    else {
+      before += less + equal;
+      lo = gt + 1;
+    }
+  }
+  return v[Math.max(0, Math.min(lo, v.length - 1))];
+}
+
+/** Interval score of one pair after moving both bounds out by `margin` (see `LeadPairs`). */
+export function shiftedScore(below: number, above: number, margin: number, alpha: number): number {
+  return Math.max(0, 2 * margin - below - above) + (2 / alpha) * (Math.max(0, below - margin) + Math.max(0, above - margin));
+}
+
+/**
+ * The margin that, added to both bounds of every pair, minimises their summed interval score.
+ *
+ * The summed score is convex and piecewise linear in the margin. Its slope rises by 2 / alpha
+ * where a side stops being a miss (at the pair's `below` or `above`) and by 2 where an empty
+ * interval starts to have width (at half their sum), and it starts at -4n / alpha. The minimum
+ * is the first breakpoint where the slope is no longer negative. Unless intervals are empty
+ * there, that is where the two sides together miss alpha of the time (Gneiting and Resin 2023,
+ * Theorem 2.26, for each bound).
+ */
+export function bestMargin(below: ArrayLike<number>, above: ArrayLike<number>, alpha: number): number {
+  const n = below.length;
   if (!n) return NaN;
+  // In units of 2 / alpha a miss breakpoint weighs 1 and a width breakpoint alpha, and the
+  // weights at or below the minimum must add up to 2n. The n width breakpoints weigh at most
+  // alpha * n together, so the minimum is no smaller than this order statistic of the 2n miss
+  // breakpoints. Only the few breakpoints from there on need the weighted search.
+  const eps = 1e-9;
+  const d = new Float64Array(2 * n);
+  for (let i = 0; i < n; i++) {
+    d[2 * i] = below[i];
+    d[2 * i + 1] = above[i];
+  }
+  const floor = kthSmallest(d, Math.max(1, Math.ceil(2 * n - alpha * n - eps)) - 1);
+  let before = 0, m = 0;
+  for (let i = 0; i < n; i++) {
+    if (below[i] < floor) before += 1; else m++;
+    if (above[i] < floor) before += 1; else m++;
+    if ((below[i] + above[i]) / 2 < floor) before += alpha; else m++;
+  }
+  const v = new Float64Array(m), w = new Float64Array(m);
+  for (let i = 0, o = 0; i < n; i++) {
+    const half = (below[i] + above[i]) / 2;
+    if (below[i] >= floor) { v[o] = below[i]; w[o++] = 1; }
+    if (above[i] >= floor) { v[o] = above[i]; w[o++] = 1; }
+    if (half >= floor) { v[o] = half; w[o++] = alpha; }
+  }
+  return weightedSelect(v, w, 2 * n - eps, before);
+}
+
+/** Mean interval score with every lead moved to its own `bestMargin`. Each part is one lead. */
+export function shapeScore(parts: { below: ArrayLike<number>; above: ArrayLike<number> }[], alpha: number): number {
+  let n = 0, sum = 0;
+  for (const p of parts) {
+    const margin = bestMargin(p.below, p.above, alpha);
+    for (let i = 0; i < p.below.length; i++) sum += shiftedScore(p.below[i], p.above[i], margin, alpha);
+    n += p.below.length;
+  }
+  return n ? sum / n : NaN;
+}
+
+/** Summed width of one lead's pairs at the smallest margin that covers the target share of them. */
+function widthSumAtTarget(below: ArrayLike<number>, above: ArrayLike<number>, target: number): number {
+  const n = below.length;
+  if (!n) return 0;
+  // A pair is covered once the margin reaches the larger of its two distances.
   const d = new Float64Array(n);
-  let o = 0;
-  for (const p of parts) for (let i = 0; i < p.excess.length; i++) d[o++] = p.excess[i];
-  // The smallest margin that covers ceil(target * n) pairs: a pair is covered once margin >= excess.
+  for (let i = 0; i < n; i++) d[i] = Math.max(below[i], above[i]);
   const margin = kthSmallest(d, Math.min(n, Math.max(1, Math.ceil(target * n - 1e-9))) - 1);
   let w = 0;
-  for (const p of parts) for (let i = 0; i < p.width.length; i++) w += Math.max(0, p.width[i] + 2 * margin);
-  return w / n;
+  for (let i = 0; i < n; i++) w += Math.max(0, 2 * margin - below[i] - above[i]);
+  return w;
+}
+
+/** See `MetricsRow.widthAtTarget`. Each part is one lead and gets its own margin. */
+export function widthAtTarget(parts: { below: ArrayLike<number>; above: ArrayLike<number> }[], target: number): number {
+  let n = 0, w = 0;
+  for (const p of parts) {
+    n += p.below.length;
+    w += widthSumAtTarget(p.below, p.above, target);
+  }
+  return n ? w / n : NaN;
 }
 
 /**
@@ -203,6 +320,8 @@ export class Engine {
   /** Quantile-level methods per lead, created at the first forecast (they need its levels). */
   private quantileMethods: Map<string, QuantileMethod>[] = [];
   metrics = new Map<string, MethodMetrics>();
+  /** `fitLead` results per row id and lead, reused while that lead has the same pairs. */
+  private fits = new Map<string, LeadFit[]>();
   traceT: number[] = [];
   processedUpTo = -1;
   /** Increments whenever history is rewritten, so in-flight forecasts can be dropped. */
@@ -235,6 +354,7 @@ export class Engine {
     this.sharedUp = new Map();
     this.quantileMethods = [];
     this.metrics = new Map();
+    this.fits = new Map();
     this.traceT = [];
     this.processedUpTo = -1;
     for (const id of this.rowIds) this.metrics.set(id, this.newMetrics(id));
@@ -244,7 +364,7 @@ export class Engine {
     return {
       id, n: 0, covered: 0, widthSum: 0, intervalScoreSum: 0,
       arr: { n: [], cov: [], width: [], is: [] },
-      lead: Array.from({ length: this.settings.evalLeads }, () => ({ t: [], cov: [], width: [], is: [], excess: [] })),
+      lead: Array.from({ length: this.settings.evalLeads }, () => ({ t: [], cov: [], width: [], is: [], below: [], above: [] })),
       roll: { n: 0, cov: 0, width: 0, from: 0 },
       covTrace: [], widthTrace: [],
     };
@@ -525,7 +645,8 @@ export class Engine {
           L.cov.push(cov);
           L.width.push(width);
           L.is.push(is);
-          L.excess.push(Math.max(lo - y, y - hi));
+          L.below.push(lo - y);
+          L.above.push(y - hi);
           const a = acc[i];
           a.n++;
           a.cov += cov;
@@ -592,32 +713,69 @@ export class Engine {
     return { coverage, width };
   }
 
+  /** Margins, shape score and width at target of one row at one lead (index `j`), cached. */
+  private fitLead(id: string, j: number): LeadFit {
+    let fits = this.fits.get(id);
+    if (!fits) this.fits.set(id, (fits = []));
+    const L = this.metrics.get(id)?.lead[j];
+    const n = L?.cov.length ?? 0;
+    const have = fits[j];
+    if (have && have.n === n) return have;
+    const fit: LeadFit = { n, margin: NaN, shapeSum: 0, widthSum: 0 };
+    if (L && n) {
+      const { alpha } = this.settings;
+      fit.margin = bestMargin(L.below, L.above, alpha);
+      for (let i = 0; i < n; i++) fit.shapeSum += shiftedScore(L.below[i], L.above[i], fit.margin, alpha);
+      fit.widthSum = widthSumAtTarget(L.below, L.above, 1 - alpha);
+    }
+    return (fits[j] = fit);
+  }
+
   /**
    * Block-bootstrap uncertainty of every row (pooled, or at one lead). Blocks span at least
    * `evalLeads` arrivals, the range over which overlapping forecasts share errors.
+   *
+   * The shape score is resampled with the margins held at their fitted values. The margins
+   * minimise the score, so refitting them per replicate would change it only to second order.
    */
   uncertainty(lead?: number, B = 300): Map<string, Uncertainty> {
     const series = new Map<string, ArrivalSeries>();
+    const { alpha } = this.settings;
+    const traceT = this.traceT;
     let T = 0;
     for (const id of this.rowIds) {
       const m = this.metrics.get(id)!;
       if (lead === undefined) {
-        series.set(id, m.arr);
+        // Shape scores per arrival: every lead's pairs, added up at the arrival they belong to.
+        const shape = new Float64Array(m.arr.n.length);
+        for (let j = 0; j < m.lead.length; j++) {
+          const { t, below, above } = m.lead[j];
+          if (!t.length) continue;
+          const { margin } = this.fitLead(id, j);
+          for (let i = 0, a = 0; i < t.length; i++) {
+            while (traceT[a] < t[i]) a++;
+            shape[a] += shiftedScore(below[i], above[i], margin, alpha);
+          }
+        }
+        series.set(id, { ...m.arr, shape });
         T = Math.max(T, m.arr.n.length);
       } else {
         const L = m.lead[lead - 1];
         if (!L) continue;
-        series.set(id, { n: new Array(L.cov.length).fill(1), cov: L.cov, width: L.width, is: L.is });
+        const { margin } = this.fitLead(id, lead - 1);
+        const shape = new Float64Array(L.cov.length);
+        for (let i = 0; i < shape.length; i++) shape[i] = shiftedScore(L.below[i], L.above[i], margin, alpha);
+        series.set(id, { n: new Array(L.cov.length).fill(1), cov: L.cov, width: L.width, is: L.is, shape });
         T = Math.max(T, L.cov.length);
       }
     }
     const block = Math.max(this.settings.evalLeads, Math.ceil(Math.cbrt(T) * 2));
-    const out = blockBootstrap(series, T, block, B);
-    // The penalized score of each replicate, from its paired coverage and interval score.
-    const { alpha } = this.settings;
+    const out = blockBootstrap(series, T, block, B, 12345, this.settings.rolling);
+    // What the worst window of a method at the target would look like: the target minus the
+    // drop from overall to worst-window coverage that this row's own misses show when resampled.
+    const target = 1 - alpha;
     for (const u of out.values()) {
-      u.penalizedSamples = u.scoreSamples.map((s, b) => penalizedScore(s, u.coverageSamples[b], alpha));
-      u.penalizedScore = interval95(u.penalizedSamples);
+      if (u.worstDrop) u.worstWindow = { typical: target - u.worstDrop[0], low: target - u.worstDrop[1] };
     }
     return out;
   }
@@ -627,7 +785,6 @@ export class Engine {
    * only the pairs at that lead (rolling over its last `rolling` pairs, one per arrival).
    */
   table(lead?: number): MetricsRow[] {
-    const { alpha } = this.settings;
     if (lead !== undefined) {
       const R = this.settings.rolling;
       return this.rowIds.map((id) => {
@@ -638,17 +795,19 @@ export class Engine {
         let from = n;
         while (from > 0 && L.t[from - 1] > this.processedUpTo - R) from--;
         const nr = n - from;
-        const coverage = n ? sum(L.cov) / n : NaN;
         const intervalScore = n ? sum(L.is) / n : NaN;
+        const fit = this.fitLead(id, lead - 1);
+        const shapeScore = n ? fit.shapeSum / n : NaN;
         return {
           id, n,
-          coverage,
+          coverage: n ? sum(L.cov) / n : NaN,
           rollingCoverage: nr ? sum(L.cov, from) / nr : NaN,
           meanWidth: n ? sum(L.width) / n : NaN,
           rollingWidth: nr ? sum(L.width, from) / nr : NaN,
           intervalScore,
-          penalizedScore: penalizedScore(intervalScore, coverage, alpha),
-          widthAtTarget: L ? widthAtTarget([L], 1 - alpha) : NaN,
+          shapeScore,
+          levelCost: Math.max(0, intervalScore - shapeScore),
+          widthAtTarget: n ? fit.widthSum / n : NaN,
           worstCoverage: L ? worstWindowCoverage(L.t, new Uint8Array(n).fill(1), L.cov, R) : NaN,
         };
       });
@@ -656,18 +815,25 @@ export class Engine {
     return this.rowIds.map((id) => {
       const m = this.metrics.get(id)!;
       const r = rolling(m);
-      const coverage = m.n ? m.covered / m.n : NaN;
       const intervalScore = m.n ? m.intervalScoreSum / m.n : NaN;
+      let shapeSum = 0, widthSum = 0;
+      for (let j = 0; j < m.lead.length; j++) {
+        const fit = this.fitLead(id, j);
+        shapeSum += fit.shapeSum;
+        widthSum += fit.widthSum;
+      }
+      const shapeScore = m.n ? shapeSum / m.n : NaN;
       return {
         id,
         n: m.n,
-        coverage,
+        coverage: m.n ? m.covered / m.n : NaN,
         rollingCoverage: r.coverage,
         meanWidth: m.n ? m.widthSum / m.n : NaN,
         rollingWidth: r.width,
         intervalScore,
-        penalizedScore: penalizedScore(intervalScore, coverage, alpha),
-        widthAtTarget: widthAtTarget(m.lead, 1 - alpha),
+        shapeScore,
+        levelCost: Math.max(0, intervalScore - shapeScore),
+        widthAtTarget: m.n ? widthSum / m.n : NaN,
         worstCoverage: worstWindowCoverage(this.traceT, m.arr.n, m.arr.cov, this.settings.rolling),
       };
     });
@@ -679,43 +845,42 @@ function rolling(m: MethodMetrics): { coverage: number; width: number } {
   return { coverage: m.roll.cov / m.roll.n, width: m.roll.width / m.roll.n };
 }
 
-export type RankBy = "validity_then_width" | "penalized" | "interval_score" | "rolling_gap";
-export const RANK_BY: RankBy[] = ["validity_then_width", "penalized", "interval_score", "rolling_gap"];
+export type RankBy = "valid_then_shape" | "interval_score" | "rolling_gap";
+export const RANK_BY: RankBy[] = ["valid_then_shape", "interval_score", "rolling_gap"];
 
 export interface RankedRow extends MetricsRow {
   rank: number;
   gap: number;
-  valid: boolean;
+  /**
+   * Coverage is significantly under the target: its whole 95% block-bootstrap interval lies
+   * below it. False while there is no interval yet, so a short series flags nothing.
+   */
+  under: boolean;
   /** True when this row shares its rank with the row above (not distinguishable). */
   tied?: boolean;
 }
 
-/** Rank methods (including the native interval) by the chosen criterion. */
-export function rankRows(
-  rows: MetricsRow[],
-  alpha: number,
-  by: RankBy,
-  tolerance = 0.02,
-  unc?: Map<string, Uncertainty>,
-): RankedRow[] {
+/**
+ * Rank methods (including the native interval) by the chosen criterion.
+ *
+ * `valid_then_shape` puts every row that is not significantly under the target first, ordered
+ * by shape score, and the rows that are under it last, ordered by how far they fall short.
+ */
+export function rankRows(rows: MetricsRow[], alpha: number, by: RankBy, unc?: Map<string, Uncertainty>): RankedRow[] {
   const target = 1 - alpha;
-  const ext: RankedRow[] = rows.map((r) => ({
-    ...r,
-    rank: 0,
-    gap: Math.abs(r.coverage - target),
-    valid: r.coverage >= target - tolerance,
-  }));
+  const ext: RankedRow[] = rows.map((r) => {
+    const hi = unc?.get(r.id)?.coverage[1];
+    return { ...r, rank: 0, gap: Math.abs(r.coverage - target), under: hi !== undefined && hi < target };
+  });
   const key = (r: RankedRow): number[] => {
     if (r.n === 0) return [Infinity];
     switch (by) {
       case "interval_score":
         return [r.intervalScore];
-      case "penalized":
-        return [r.penalizedScore];
       case "rolling_gap":
         return [Math.abs(r.rollingCoverage - target), r.rollingWidth];
-      case "validity_then_width":
-        return r.valid ? [0, r.meanWidth] : [1, r.gap];
+      case "valid_then_shape":
+        return r.under ? [1, target - r.coverage] : [0, r.shapeScore];
     }
   };
   const sorted = [...ext].sort((a, b) => {
@@ -728,14 +893,16 @@ export function rankRows(
   });
   sorted.forEach((r, i) => (r.rank = i + 1));
   // With bootstrap replicates, rows whose score cannot be told apart from the head of their
-  // group share its rank (95% paired block-bootstrap interval contains 0).
-  if (unc && (by === "interval_score" || by === "penalized")) {
-    const samples = (id: string) => (by === "penalized" ? unc.get(id)?.penalizedSamples : unc.get(id)?.scoreSamples);
+  // group share its rank (95% paired block-bootstrap interval contains 0). Rows that are
+  // significantly under the target are ordered by their shortfall and never tie.
+  if (unc && by !== "rolling_gap") {
+    const samples = (id: string) => (by === "valid_then_shape" ? unc.get(id)?.shapeSamples : unc.get(id)?.scoreSamples);
     let head = sorted[0];
     for (let i = 1; i < sorted.length; i++) {
       const r = sorted[i];
       const a = samples(r.id), b = samples(head?.id ?? "");
-      if (r.n > 0 && head.n > 0 && a && b && indistinguishable(a, b)) {
+      const comparable = by === "interval_score" || (!r.under && !head.under);
+      if (comparable && r.n > 0 && head.n > 0 && a && b && indistinguishable(a, b)) {
         r.rank = head.rank;
         r.tied = true;
       } else {
