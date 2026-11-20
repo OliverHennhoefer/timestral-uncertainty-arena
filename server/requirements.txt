@@ -3,4 +3,6 @@ torch>=2.4
 safetensors
 huggingface_hub
 timestral @ git+https://github.com/mistralai/timestral.git
-chronos-forecasting>=1.5
+chronos-forecasting>=2.0
+timesfm[torch]>=3.0
+# Moirai (uni2ts) pins old torch/numpy/scipy; install it separately, see server/serve.py.
