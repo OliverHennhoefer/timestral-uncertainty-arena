@@ -141,7 +141,7 @@
                 <select id="rank-lead"></select>
               </div>
               <div class="field">
-                <div class="field-label"><label for="rank-by">Rank methods by</label><button class="help" aria-label="About ranking" data-tip="Valid coverage, then width: methods at most 2 points under the target come first, and the narrowest wins. Interval score: width plus a charge for how far misses land. Penalized: interval score raised when misses are too frequent. Closest rolling coverage: nearest to the target over the rolling window.">?</button></div>
+                <div class="field-label"><label for="rank-by">Rank methods by</label><button class="help" aria-label="About ranking" data-tip="Coverage test, then shape score: methods whose coverage is not clearly below the target come first, and the best shape score wins. Interval score: width plus a charge for how far misses land. Closest rolling coverage: nearest to the target over the rolling window.">?</button></div>
                 <select id="rank-by">
                   <option value="valid_then_shape" selected>Coverage test, then shape score</option>
                   <option value="interval_score">Interval score</option>
@@ -231,7 +231,7 @@
             <div class="card-heading"><h2 id="ranking-heading">Comparison</h2><span class="muted small" id="ranking-scope">Coverage test, then shape score</span></div>
             <div class="rank-wrap"><table class="rank" id="rank-table" aria-label="Method comparison"></table></div>
             <p class="empty-state hidden" id="rank-empty">No evaluated forecasts yet.</p>
-            <p class="footnote-sm">Lower width and scores are better. ± 95% uncertainty. ▾ significantly under target. Hover a column name for its definition.</p>
+            <p class="footnote-sm">Lower width and scores are better. ± 95% uncertainty. ▾ significantly under target. The ? next to a column name explains it.</p>
           </section>
 
           <details class="card calib" id="calib">

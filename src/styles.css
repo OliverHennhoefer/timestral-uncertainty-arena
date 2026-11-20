@@ -220,7 +220,7 @@ table.rank td.under { font-weight: 600; }
 table.rank .flag { color: var(--danger); margin-right: 4px; font-size: 11px; }
 table.rank .ref { color: var(--muted); font-size: 11px; font-weight: 400; margin-left: 7px; }
 table.rank th.by { color: var(--ink); font-weight: 500; }
-table.rank th[title] { cursor: help; }
+table.rank .th-label { display: inline-flex; align-items: center; gap: 6px; }
 /* The extra scores need a wide table; the column the ranking uses always stays. */
 @container (max-width: 1040px) { table.rank .covbar { display: none; } }
 @container (max-width: 860px) { table.rank .x { display: none; } }
