@@ -7,7 +7,7 @@ import "./export.css";
 import { NATIVE_ID } from "../engine/engine";
 import { type EncodeResult, drawStill, encode, outputSize, videoSupport } from "./encode";
 import { type ExportFormat, GIF_SOFT_LIMIT, LAYOUTS, type Layout, layoutById, schedule } from "./layouts";
-import type { Texts, Theme } from "./render";
+import { SHOW_ALL, type Show, type Texts, type Theme } from "./render";
 import { type ExportSource, SceneReplay } from "./scene";
 
 export interface ExportRequest extends ExportSource {
@@ -19,18 +19,33 @@ export interface ExportRequest extends ExportSource {
 
 const STORE = "ctimestral-export";
 
+/** Toggles in the Customize section: [key, label, tooltip]. */
+const SHOW_ITEMS: [keyof Show, string, string][] = [
+  ["legend", "Legend", "Key for the lines and bands"],
+  ["stats", "Coverage numbers", "The large coverage figures at the top"],
+  ["coverage", "Coverage chart", "Rolling coverage under the chart (Portrait and Story)"],
+  ["ticks", "Axis values", "Numbers on the vertical axis"],
+  ["misses", "Misses", "Red dots where the truth fell outside the interval"],
+  ["brand", "Credit line", "Timestral Uncertainty Arena"],
+  ["progress", "Progress bar", "Thin bar along the bottom edge"],
+];
+
 interface Prefs {
   layout: string;
   format: "gif" | "video";
   seconds: number;
   theme: Theme;
+  show: Show;
 }
 
 function loadPrefs(): Prefs {
-  const d: Prefs = { layout: "social", format: "gif", seconds: 10, theme: "light" };
+  const d: Prefs = { layout: "social", format: "gif", seconds: 10, theme: "light", show: { ...SHOW_ALL } };
   try {
     const raw = localStorage.getItem(STORE);
-    if (raw) return { ...d, ...(JSON.parse(raw) as Partial<Prefs>) };
+    if (raw) {
+      const p = JSON.parse(raw) as Partial<Prefs>;
+      return { ...d, ...p, show: { ...SHOW_ALL, ...p.show } };
+    }
   } catch {
     // storage unavailable
   }
@@ -126,8 +141,15 @@ export function openExportDialog(req: ExportRequest): void {
               .join("")}
           </select>
         </label>
-        <label class="field">Title <input id="export-title-input" type="text" maxlength="80" value="${esc(req.title)}" /></label>
-        <label class="field">Subtitle <input id="export-sub-input" type="text" maxlength="120" /></label>
+        <label class="field">Title <input id="export-title-input" type="text" maxlength="80" value="${esc(req.title)}" placeholder="No title" /></label>
+        <details class="export-custom" ${Object.values(prefs.show).some((v) => !v) ? "open" : ""}>
+          <summary>Customize</summary>
+          <label class="field">Subtitle <input id="export-sub-input" type="text" maxlength="120" placeholder="No subtitle" /></label>
+          <div class="export-toggles" role="group" aria-label="Show in the animation">
+            ${SHOW_ITEMS.map(([k, label, hint]) => `<label class="check-row" title="${esc(hint)}"><input type="checkbox" data-show="${k}" ${prefs.show[k] ? "checked" : ""} />${label}</label>`).join("")}
+          </div>
+          <button type="button" class="ghost small-btn" id="export-reset">Reset</button>
+        </details>
       </div>
     </div>
     <div class="export-foot">
@@ -183,7 +205,12 @@ export function openExportDialog(req: ExportRequest): void {
   const format = (): ExportFormat => (fmtSel.value === "gif" ? "gif" : video0 === "webm" ? "webm" : "mp4");
   const source = (): ExportSource => ({ ...req, focusId: methodSel.value });
   const range = (): [number, number] => [Math.max(0, n - Number(rangeSel.value)), n - 1];
-  const texts = (): Texts => ({ title: titleIn.value.trim() || req.title, subtitle: subIn.value.trim(), level, brand: "Timestral Uncertainty Arena" });
+  const texts = (): Texts => ({ title: titleIn.value.trim(), subtitle: subIn.value.trim(), level, brand: "Timestral Uncertainty Arena" });
+  const show = (): Show => {
+    const out = { ...SHOW_ALL };
+    el.querySelectorAll<HTMLInputElement>("input[data-show]").forEach((c) => (out[c.dataset.show as keyof Show] = c.checked));
+    return out;
+  };
 
   const clearResult = () => {
     if (resultUrl) URL.revokeObjectURL(resultUrl);
@@ -227,12 +254,18 @@ export function openExportDialog(req: ExportRequest): void {
     if (!subEdited) subIn.value = autoSub(methodSel.value);
     const [from, to] = range();
     if (replayFocus !== methodSel.value) (replay = null), (replayFocus = methodSel.value);
-    replay = drawStill(canvas, { source: source(), layout: L, theme: themeSel.value as Theme, texts: texts(), from, to }, replay ?? undefined);
+    replay = drawStill(canvas, { source: source(), layout: L, theme: themeSel.value as Theme, texts: texts(), show: show(), from, to }, replay ?? undefined);
     describe();
-    savePrefs({ layout: L.id, format: fmtSel.value === "video" ? "video" : "gif", seconds: Number(secSel.value), theme: themeSel.value as Theme });
+    savePrefs({ layout: L.id, format: fmtSel.value === "video" ? "video" : "gif", seconds: Number(secSel.value), theme: themeSel.value as Theme, show: show() });
   };
 
   el.querySelectorAll("input, select").forEach((c) => c.addEventListener(c.matches("input[type=text]") ? "input" : "change", preview));
+  q<HTMLButtonElement>("#export-reset").addEventListener("click", () => {
+    el.querySelectorAll<HTMLInputElement>("input[data-show]").forEach((c) => (c.checked = true));
+    titleIn.value = req.title;
+    subEdited = false;
+    preview();
+  });
 
   const close = () => {
     running?.abort();
@@ -264,7 +297,7 @@ export function openExportDialog(req: ExportRequest): void {
     const L = layout();
     const f = format();
     const [from, to] = range();
-    const job = { source: source(), layout: L, format: f, theme: themeSel.value as Theme, texts: texts(), from, to, seconds: Number(secSel.value) };
+    const job = { source: source(), layout: L, format: f, theme: themeSel.value as Theme, texts: texts(), show: show(), from, to, seconds: Number(secSel.value) };
     running = new AbortController();
     el.classList.add("busy");
     go.disabled = true;

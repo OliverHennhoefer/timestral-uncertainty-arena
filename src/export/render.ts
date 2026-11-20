@@ -46,6 +46,23 @@ function rgba(hex: string, a: number): string {
 /** The native row is named after the model in the subtitle already; "Native" is enough here. */
 const shortName = (s: StatLine) => (s.id === "native" ? "Native" : s.name);
 
+/** Parts of the frame that can be switched off, e.g. to describe them in the post text instead. */
+export interface Show {
+  legend: boolean;
+  /** The big coverage numbers. */
+  stats: boolean;
+  /** Rolling-coverage chart (portrait and story layouts). */
+  coverage: boolean;
+  /** Y-axis values. */
+  ticks: boolean;
+  misses: boolean;
+  /** "Timestral Uncertainty Arena" credit line. */
+  brand: boolean;
+  progress: boolean;
+}
+
+export const SHOW_ALL: Show = { legend: true, stats: true, coverage: true, ticks: true, misses: true, brand: true, progress: true };
+
 const pct = (v: number) => (Number.isFinite(v) ? `${(v * 100).toFixed(1)}%` : "–");
 
 interface Rect {
@@ -67,6 +84,7 @@ export class Painter {
     readonly layout: Layout,
     readonly theme: Theme,
     readonly texts: Texts,
+    readonly show: Show = SHOW_ALL,
   ) {}
 
   /** Forget the eased ranges (e.g. for a still preview). */
@@ -80,6 +98,7 @@ export class Painter {
     const T = L.type;
     const S = L.safe;
     const P = PALETTES[this.theme];
+    const show = this.show;
     const wide = L.w / L.h > 1.4;
     this.y = this.y ? [this.y[0] + (f.yLo - this.y[0]) * ease, this.y[1] + (f.yHi - this.y[1]) * ease] : [f.yLo, f.yHi];
     const stats = f.stats.map((st) => ({ ...st, name: shortName(st) }));
@@ -96,13 +115,13 @@ export class Painter {
 
     // Title and subtitle; in wide layouts the coverage numbers sit to their right.
     let statW = 0;
-    if (wide) {
+    if (wide && show.stats) {
       ctx.font = font(T.label, 500);
       for (const st of stats) statW = Math.max(statW, ctx.measureText(st.name).width + T.label * 1.4);
       ctx.font = font(T.value, 650);
       statW = Math.max(statW, ctx.measureText("100.0%").width + T.value * 0.4);
     }
-    const textW = cw - (wide ? statW * stats.length + 24 : 0);
+    const textW = cw - (statW ? statW * stats.length + 24 : 0);
     ctx.fillStyle = P.ink;
     // A title slightly too long for one line is set a little smaller rather than wrapped.
     let titlePx = T.title;
@@ -110,25 +129,27 @@ export class Painter {
     const tw = ctx.measureText(this.texts.title).width;
     if (tw > textW && tw * 0.8 <= textW) titlePx = Math.floor((T.title * textW) / tw);
     ctx.font = font(titlePx, 650);
-    for (const line of wrap(ctx, this.texts.title, textW, 2)) {
+    for (const line of this.texts.title ? wrap(ctx, this.texts.title, textW, 2) : []) {
       top += T.title * 0.92;
       ctx.fillText(line, x0, top);
       top += T.title * 0.2;
     }
     ctx.font = font(T.sub);
     ctx.fillStyle = P.muted;
-    top += T.sub * 0.2;
-    for (const line of wrap(ctx, this.texts.subtitle, textW, L.subLines)) {
+    if (this.texts.subtitle) top += T.sub * 0.2;
+    for (const line of this.texts.subtitle ? wrap(ctx, this.texts.subtitle, textW, L.subLines) : []) {
       top += T.sub;
       ctx.fillText(line, x0, top);
       top += T.sub * 0.3;
     }
 
-    if (wide) {
+    if (!show.stats) {
+      if (top === S.top) top -= T.tick; // nothing above the chart: start it at the top
+    } else if (wide) {
       const h = this.statsRow(ctx, P, stats, { x: x0 + cw - statW * stats.length, y: S.top, w: statW * stats.length, h: 0 }, T, true);
       top = Math.max(top, S.top + h);
     } else {
-      top += T.sub;
+      if (top > S.top) top += T.sub;
       top += this.statsRow(ctx, P, stats, { x: x0, y: top, w: cw, h: 0 }, T, false);
     }
 
@@ -136,16 +157,16 @@ export class Painter {
     // only the progress bar on the very edge.
     const items = this.legendItems(P, stats);
     ctx.font = font(T.legend);
-    const rows = layoutLegend(ctx, items, cw, T.legend);
+    const rows = show.legend ? layoutLegend(ctx, items, cw, T.legend) : [];
     const rowH = T.legend * 1.7;
-    const brandBelow = !wide;
-    const bottom = L.h - S.bottom - (brandBelow ? T.brand * 1.9 : 0);
+    const brandBelow = !wide || !rows.length;
+    const bottom = L.h - S.bottom - (brandBelow && show.brand ? T.brand * 1.9 : 0);
     const legendTop = bottom - rows.length * rowH;
     const gap = T.tick * 1.2;
     const chartTop = top + gap;
 
     let covH = 0;
-    if (!wide && L.h / L.w > 1.15) covH = Math.round((legendTop - chartTop) * (L.h / L.w > 1.6 ? 0.32 : 0.28));
+    if (show.coverage && !wide && L.h / L.w > 1.15) covH = Math.round((legendTop - chartTop) * (L.h / L.w > 1.6 ? 0.32 : 0.28));
     const chart: Rect = { x: x0, y: chartTop, w: cw, h: legendTop - gap - chartTop - (covH ? covH + gap : 0) };
     this.mainChart(ctx, P, f, chart, stats);
     if (covH) this.coverageChart(ctx, P, f, { x: x0, y: chart.y + chart.h + gap, w: cw, h: covH }, f.coverage);
@@ -163,8 +184,10 @@ export class Painter {
     });
     ctx.font = font(T.brand, 500);
     ctx.fillStyle = P.muted;
-    const brand = this.texts.brand;
-    if (!brandBelow) {
+    const brand = show.brand ? this.texts.brand : "";
+    if (!brand) {
+      // credit switched off
+    } else if (!brandBelow) {
       const lastRow = rows[rows.length - 1] ?? [];
       const used = lastRow.reduce((sum, it) => sum + it.width + T.legend * 1.3, 0);
       const bw = ctx.measureText(brand).width;
@@ -173,7 +196,7 @@ export class Painter {
       ctx.fillText(brand, x0, L.h - S.bottom);
     }
 
-    const barH = Math.round(5 * T.line);
+    const barH = show.progress ? Math.round(5 * T.line) : 0;
     ctx.fillStyle = rgba(P.muted, 0.18);
     ctx.fillRect(0, L.h - barH, L.w, barH);
     ctx.fillStyle = stats[0]?.color ?? P.ink;
@@ -244,7 +267,7 @@ export class Painter {
     const native = stats.find((s) => s.id === "native");
     if (focus && focus !== native) items.push({ kind: "fill", color: focus.color, label: `${focus.name} ${lvl}`, width: 0 });
     if (native) items.push({ kind: focus === native ? "fill" : "dashband", color: P.native, label: `${native.name} ${lvl}`, width: 0 });
-    items.push({ kind: "dot", color: P.miss, label: "Miss", width: 0 });
+    if (this.show.misses) items.push({ kind: "dot", color: P.miss, label: "Miss", width: 0 });
     return items;
   }
 
@@ -252,7 +275,7 @@ export class Painter {
     const [yLo, yHi] = this.y!;
     const tickPx = this.layout.type.tick;
     ctx.font = font(tickPx);
-    const gutter = Math.ceil(ctx.measureText("100").width + 18);
+    const gutter = this.show.ticks ? Math.ceil(ctx.measureText("100").width + 18) : 0;
     const plot: Rect = { x: r.x + gutter, y: r.y, w: r.w - gutter, h: r.h };
     const span = Math.max(1, f.x1 - f.x0);
     const px = plot.w / span;
@@ -274,6 +297,7 @@ export class Painter {
       ctx.moveTo(plot.x, y);
       ctx.lineTo(plot.x + plot.w, y);
       ctx.stroke();
+      if (!this.show.ticks) continue;
       ctx.fillStyle = P.muted;
       const s = v.toFixed(digits);
       ctx.fillText(s, plot.x - 14 - ctx.measureText(s).width, y + tickPx * 0.35);
@@ -381,7 +405,7 @@ export class Painter {
     ctx.fillStyle = P.miss;
     const missR = 4.5 * lw * Math.min(1, Math.max(0.6, px / 3));
     for (const [t, , , missed] of f.past) {
-      if (!missed || t < f.s0) continue;
+      if (!missed || t < f.s0 || !this.show.misses) continue;
       ctx.beginPath();
       ctx.arc(X(t), Y(f.series[t]), missR, 0, Math.PI * 2);
       ctx.fill();

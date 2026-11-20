@@ -6,7 +6,7 @@
  */
 
 import { type ExportFormat, GIF_FRAME_MS, HOLD_SECONDS, type Layout, VIDEO_FPS, schedule } from "./layouts";
-import { Painter, type Texts, type Theme } from "./render";
+import { Painter, type Show, type Texts, type Theme } from "./render";
 import { type ExportSource, SceneReplay } from "./scene";
 
 export interface EncodeJob {
@@ -15,6 +15,8 @@ export interface EncodeJob {
   format: ExportFormat;
   theme: Theme;
   texts: Texts;
+  /** Parts of the frame to draw (all by default). */
+  show?: Show;
   /** Series range to animate, inclusive. */
   from: number;
   to: number;
@@ -69,7 +71,7 @@ export function drawStill(canvas: HTMLCanvasElement, job: Omit<EncodeJob, "forma
   const r = replay && replay.time <= job.to ? replay : new SceneReplay(job.source);
   r.advanceTo(job.to);
   const ctx = canvas.getContext("2d")!;
-  const painter = new Painter(job.layout, job.theme, job.texts);
+  const painter = new Painter(job.layout, job.theme, job.texts, job.show);
   painter.covFrom = job.from;
   painter.covTo = job.to;
   ctx.setTransform(canvas.width / job.layout.w, 0, 0, canvas.height / job.layout.h, 0, 0);
@@ -89,7 +91,7 @@ export async function encode(job: EncodeJob): Promise<EncodeResult> {
     painter.draw(ctx, replay.frame(job.layout.history, job.from, job.to), (i + 1) / frames, i === 0 ? 1 : 0.18);
   };
   const newPainter = () => {
-    const p = new Painter(job.layout, job.theme, job.texts);
+    const p = new Painter(job.layout, job.theme, job.texts, job.show);
     p.covFrom = job.from;
     p.covTo = job.to;
     return p;

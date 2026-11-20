@@ -50,6 +50,15 @@
 .button-link:hover { background: #404040; }
 .button-link:not(.hidden) + #export-go { background: var(--surface); color: var(--ink); border-color: var(--line-strong); }
 .export-dialog.busy .export-options { opacity: .55; pointer-events: none; }
+.export-custom { border-top: 1px solid var(--line); margin-top: 4px; }
+.export-custom > summary { display: flex; align-items: center; min-height: 44px; font-size: 13px; font-weight: 600; }
+.export-custom > summary::after { content: ""; width: 6px; height: 6px; margin-left: auto; margin-right: 3px; border-right: 1.5px solid var(--muted); border-bottom: 1.5px solid var(--muted); transform: rotate(-45deg); transition: transform .15s; }
+.export-custom[open] > summary::after { transform: rotate(45deg); }
+.export-custom[open] { padding-bottom: 6px; }
+.export-custom > .field { margin-top: 4px; }
+.export-toggles { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0 12px; }
+.export-toggles .check-row { min-height: 32px; padding-block: 3px; }
+#export-reset { min-height: 30px; padding: 4px 8px; margin-top: 6px; font-size: 12px; }
 @media (max-width: 820px) {
   .export-body { grid-template-columns: minmax(0, 1fr); }
   .export-layouts { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
