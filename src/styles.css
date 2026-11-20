@@ -292,3 +292,7 @@ table.rank .pm { color: var(--muted); font-size: 11px; line-height: 1.25; margin
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition: none !important; scroll-behavior: auto !important; }
 }
+
+/* The quiet entry point in the settings footer. */
+.export-link { min-height: 0; padding: 0; border: 0; background: none; color: var(--muted); font-size: 11px; text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: 3px; margin-top: 6px; }
+.export-link:hover { background: none; color: var(--ink); }
