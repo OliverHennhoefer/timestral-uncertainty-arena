@@ -13,7 +13,7 @@
 import { METHODS, type MethodSpec, type OnlineMethod, defaultParams } from "../conformal/methods";
 import type { QuantileMethod } from "../conformal/multiqt";
 import { ScoreHistory } from "../conformal/window";
-import { type ArrivalSeries, type Uncertainty, blockBootstrap, indistinguishable } from "./bootstrap";
+import { type ArrivalSeries, type Uncertainty, blockBootstrap, indistinguishable, interval95 } from "./bootstrap";
 
 export type ScoreType = "cqr" | "cqr_asym" | "abs" | "scaled";
 
@@ -845,8 +845,27 @@ function rolling(m: MethodMetrics): { coverage: number; width: number } {
   return { coverage: m.roll.cov / m.roll.n, width: m.roll.width / m.roll.n };
 }
 
-export type RankBy = "valid_then_score" | "interval_score" | "rolling_gap";
-export const RANK_BY: RankBy[] = ["valid_then_score", "interval_score", "rolling_gap"];
+export type RankBy = "valid_then_score" | "interval_score" | "cwc" | "rolling_gap";
+export const RANK_BY: RankBy[] = ["valid_then_score", "interval_score", "cwc", "rolling_gap"];
+
+/**
+ * Default shortfall penalty of the coverage-width criterion, per unit of coverage. At 25 each
+ * percentage point under the target multiplies the width by e^0.25, about 1.28. That is roughly
+ * eight times what a Gaussian band pays in width to gain that point back near 90-95% coverage
+ * (about 3-4% per point), so a method has to be much narrower to excuse a shortfall.
+ */
+export const CWC_ETA = 25;
+export const CWC_ETA_MAX = 200;
+
+/**
+ * Coverage-width criterion: the mean width the method actually issued, multiplied by
+ * e^(eta * shortfall), where the shortfall is how far realised coverage falls under the target
+ * (0 at or above it). Over-coverage earns nothing; it only pays through its extra width. Lower
+ * is better, and the value is in the units of the series, like the width.
+ */
+export function cwc(meanWidth: number, coverage: number, target: number, eta: number): number {
+  return meanWidth * Math.exp(eta * Math.max(0, target - coverage));
+}
 
 export interface RankedRow extends MetricsRow {
   rank: number;
@@ -856,6 +875,10 @@ export interface RankedRow extends MetricsRow {
    * below it. False while there is no interval yet, so a short series flags nothing.
    */
   under: boolean;
+  /** Coverage-width criterion at the shortfall penalty given to `rankRows` (see `cwc`). */
+  cwc: number;
+  /** Its 95% block-bootstrap interval, when replicates are available. */
+  cwcCi?: [number, number];
   /** True when this row shares its rank with the row above (not distinguishable). */
   tied?: boolean;
 }
@@ -869,18 +892,32 @@ export interface RankedRow extends MetricsRow {
  * than the target pays for its extra width. The shape score and level cost, which take that
  * width away in hindsight, are diagnostics only: ranking by shape alone put an over-wide band
  * first whenever its errors were well placed.
+ *
+ * `cwc` ranks by the coverage-width criterion at shortfall penalty `eta` (see `cwc`): realised
+ * width, inflated exponentially for every point of coverage under the target.
  */
-export function rankRows(rows: MetricsRow[], alpha: number, by: RankBy, unc?: Map<string, Uncertainty>): RankedRow[] {
+export function rankRows(rows: MetricsRow[], alpha: number, by: RankBy, unc?: Map<string, Uncertainty>, eta = CWC_ETA): RankedRow[] {
   const target = 1 - alpha;
+  // Paired replicates of the coverage-width criterion, from the same resampled stretches.
+  const cwcSamples = new Map<string, Float64Array>();
   const ext: RankedRow[] = rows.map((r) => {
-    const hi = unc?.get(r.id)?.coverage[1];
-    return { ...r, rank: 0, gap: Math.abs(r.coverage - target), under: hi !== undefined && hi < target };
+    const u = unc?.get(r.id);
+    const hi = u?.coverage[1];
+    const row: RankedRow = { ...r, rank: 0, gap: Math.abs(r.coverage - target), under: hi !== undefined && hi < target, cwc: cwc(r.meanWidth, r.coverage, target, eta) };
+    if (u?.widthSamples && u.coverageSamples) {
+      const s = u.widthSamples.map((w, b) => cwc(w, u.coverageSamples[b], target, eta));
+      cwcSamples.set(r.id, s);
+      row.cwcCi = interval95(s);
+    }
+    return row;
   });
   const key = (r: RankedRow): number[] => {
     if (r.n === 0) return [Infinity];
     switch (by) {
       case "interval_score":
         return [r.intervalScore];
+      case "cwc":
+        return [r.cwc];
       case "rolling_gap":
         return [Math.abs(r.rollingCoverage - target), r.rollingWidth];
       case "valid_then_score":
@@ -900,12 +937,12 @@ export function rankRows(rows: MetricsRow[], alpha: number, by: RankBy, unc?: Ma
   // group share its rank (95% paired block-bootstrap interval contains 0). Rows that are
   // significantly under the target are ordered by their shortfall and never tie.
   if (unc && by !== "rolling_gap") {
-    const samples = (id: string) => unc.get(id)?.scoreSamples;
+    const samples = (id: string) => (by === "cwc" ? cwcSamples.get(id) : unc.get(id)?.scoreSamples);
     let head = sorted[0];
     for (let i = 1; i < sorted.length; i++) {
       const r = sorted[i];
       const a = samples(r.id), b = samples(head?.id ?? "");
-      const comparable = by === "interval_score" || (!r.under && !head.under);
+      const comparable = by === "interval_score" || by === "cwc" || (!r.under && !head.under);
       if (comparable && r.n > 0 && head.n > 0 && a && b && indistinguishable(a, b)) {
         r.rank = head.rank;
         r.tied = true;

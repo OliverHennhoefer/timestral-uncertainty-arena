@@ -1,7 +1,7 @@
 import "./styles.css";
 import { METHODS, defaultParams } from "./conformal/methods";
 import type { Uncertainty } from "./engine/bootstrap";
-import { Engine, NATIVE_COLOR, NATIVE_ID, type RankBy, type ScoreType, type Settings, defaultSettings, rankRows } from "./engine/engine";
+import { Engine, NATIVE_COLOR, NATIVE_ID, type RankBy, type ScoreType, type Settings, defaultSettings, rankRows, CWC_ETA, CWC_ETA_MAX } from "./engine/engine";
 import { CalibrationProbe, pitHistogram } from "./engine/calibration";
 import { ForecastScheduler } from "./engine/scheduler";
 import { type ReliabilityCurve, maxGap, pitChart, reliabilityChart } from "./ui/calibration";
@@ -61,6 +61,8 @@ let maxContext = 256;
 let symmetric = true;
 let clip = true;
 let rankBy: RankBy = "valid_then_score";
+/** Shortfall penalty of the coverage-width criterion (CWC column and ranking). */
+let cwcEta = CWC_ETA;
 /** 0 = pooled over all scored leads, else a single lead. */
 let rankLead = 0;
 let uncCache: { key: string; at: number; len: number; value: Map<string, Uncertainty> } | null = null;
@@ -1021,7 +1023,7 @@ function renderTable() {
   const alpha = engine.settings.alpha;
   const target = 1 - alpha;
   const unc = uncertainty();
-  const rows = rankRows(engine.table(rankLead || undefined), alpha, rankBy, unc);
+  const rows = rankRows(engine.table(rankLead || undefined), alpha, rankBy, unc, cwcEta);
   const hasData = rows.some((r) => r.n > 0);
   $("rank-empty").classList.toggle("hidden", hasData);
   $("rank-table").classList.toggle("hidden", !hasData);
@@ -1029,6 +1031,7 @@ function renderTable() {
   const criteria: Record<RankBy, string> = {
     valid_then_score: "Coverage test, then interval score",
     interval_score: "Interval score",
+    cwc: `CWC, η ${cwcEta}`,
     rolling_gap: "Rolling coverage",
   };
   $("ranking-scope").textContent = `${criteria[rankBy]} · ${rankLead ? `step ${rankLead}` : "all steps"}`;
@@ -1053,6 +1056,7 @@ function renderTable() {
     { label: "Width", tip: "Average width of the intervals the method issued, at whatever coverage it reached." },
     { label: `Width at ${tpct(target)}`, extra: true, tip: `Average width after stretching or shrinking the intervals, in hindsight, until they cover exactly ${tpct(target)}. Compares methods at equal coverage. Each step ahead gets its own adjustment.` },
     { label: "Interval score", tip: `Width plus a penalty for every miss: ${+(2 / alpha).toFixed(2)}× how far the value landed outside. Lower is better. A miss is charged by its distance, not by how often misses happen, so a too-narrow interval can still score well.`, by: ["interval_score", "valid_then_score"] },
+    { label: "CWC", extra: true, by: ["cwc"], tip: `Coverage-width criterion: the average width the method actually issued, times e^(η × shortfall), where the shortfall is how far its coverage fell under ${tpct(target)}. η is ${cwcEta}, so each point under the target multiplies the width by ${Math.exp(cwcEta / 100).toFixed(2)}. Coverage above the target earns nothing and pays only through its extra width. Lower is better. Set η under Settings, Ranking.` },
     { label: "Shape score", extra: true, tip: "Diagnostic, not used for ranking. The interval score after a free fix: all intervals are stretched or shrunk by the same amount, in hindsight, until the score is as low as it can get. It shows how good the intervals are once their overall width is right. Lower is better. Each step ahead gets its own amount." },
     { label: "Level cost", extra: true, tip: "Diagnostic, not used for ranking. How much that free fix helped, as a share of the interval score. 0% means the overall width was already right. A large value means the intervals were too narrow or too wide overall." },
   ];
@@ -1085,8 +1089,9 @@ function renderTable() {
         ${td(2, num(r.meanWidth))}
         ${td(3, num(r.widthAtTarget))}
         ${td(4, `${num(r.intervalScore)}${pm(r.intervalScore, u?.intervalScore)}`)}
-        ${td(5, `${num(r.shapeScore)}${pm(r.shapeScore, u?.shapeScore)}`)}
-        ${td(6, pct(share), [], levelTip)}</tr>`;
+        ${td(5, `${num(r.cwc)}${pm(r.cwc, r.cwcCi)}`)}
+        ${td(6, `${num(r.shapeScore)}${pm(r.shapeScore, u?.shapeScore)}`)}
+        ${td(7, pct(share), [], levelTip)}</tr>`;
     }),
   ];
   const table = $<HTMLTableElement>("rank-table");
@@ -1510,6 +1515,7 @@ function bindControls() {
     });
   };
   syncSettingControls();
+  syncEtaControl();
   num("eval-leads", "evalLeads");
   $("eval-leads").addEventListener("change", () => {
     renderLeadOptions();
@@ -1540,12 +1546,25 @@ function bindControls() {
     rankBy = (e.target as HTMLSelectElement).value as RankBy;
     renderTable();
   });
+  $<HTMLInputElement>("cwc-eta").addEventListener("change", (e) => {
+    const el = e.target as HTMLInputElement;
+    const v = Number(el.value);
+    cwcEta = Number.isFinite(v) ? Math.min(CWC_ETA_MAX, Math.max(0, v)) : CWC_ETA;
+    syncEtaControl();
+    renderTable();
+  });
   window.addEventListener("resize", () => followEnd(0.8, 0.7));
   const resize = new ResizeObserver(requestRender);
   [canvas, overview, $("cov-canvas"), $("width-canvas")].forEach((el) => resize.observe(el));
 }
 
 const alphaLabel = (a: number) => `${((1 - a) * 100).toFixed(0)}%`;
+
+/** Write the CWC shortfall penalty into its control, with what one point under the target costs. */
+function syncEtaControl() {
+  $<HTMLInputElement>("cwc-eta").value = String(cwcEta);
+  $("cwc-eta-hint").textContent = `1 point under target: width × ${Math.exp(cwcEta / 100).toFixed(2)}`;
+}
 
 /** Write the conformal settings into their controls (on start and after opening a link). */
 function syncSettingControls() {
@@ -1588,6 +1607,7 @@ function currentScenario(): Scenario {
     leadsBefore: align === "calibrate" ? leadsBeforeCalibrate : null,
     settings: engine.settings,
     rankBy,
+    cwcEta,
     rankLead,
     focus: focusId,
     shown,
@@ -1742,6 +1762,8 @@ async function restoreFromHash() {
   syncSettingControls();
   rankBy = s.rankBy;
   $<HTMLSelectElement>("rank-by").value = rankBy;
+  cwcEta = s.cwcEta;
+  syncEtaControl();
   rankLead = s.rankLead;
   shown = s.shown;
   saveShown();

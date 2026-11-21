@@ -121,6 +121,22 @@ describe("engine", () => {
     expect(ranked.map((r) => r.under)).toEqual([false, false, true]);
   });
 
+  it("CWC prices a coverage shortfall smoothly and never rewards over-coverage", () => {
+    // 89.1% at width 25 against 87.9% at width 19.5, at a 90% target.
+    const rows = [row("closer", 0.891, 25, 30), row("narrower", 0.879, 19.5, 28)];
+    const by = (eta: number) => rankRows(rows, 0.1, "cwc", undefined, eta).map((r) => r.id);
+    expect(by(25)).toEqual(["closer", "narrower"]);
+    // ln(25 / 19.5) / 0.012 ≈ 20.7 is where the two swap.
+    expect(by(20)).toEqual(["narrower", "closer"]);
+    expect(by(0)).toEqual(["narrower", "closer"]);
+    const r = rankRows(rows, 0.1, "cwc")[0];
+    expect(r.cwc).toBeCloseTo(25 * Math.exp(25 * 0.009), 9);
+    // Above the target the criterion is the plain width, so covering more only costs width.
+    const over = [row("over", 0.97, 12, 13), row("on", 0.9, 11, 13)];
+    const ranked = rankRows(over, 0.1, "cwc");
+    expect(ranked.map((x) => [x.id, x.cwc])).toEqual([["on", 11], ["over", 12]]);
+  });
+
   it("an over-wide interval pays for its extra width, whatever its shape score", () => {
     // Covers 98% with a good shape once shrunk in hindsight, but issued much more width than
     // the on-target row (Holt-Winters' native band at 64 steps on "Seasonal + noise").

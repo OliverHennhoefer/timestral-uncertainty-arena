@@ -153,12 +153,18 @@
                 <select id="rank-lead"></select>
               </div>
               <div class="field">
-                <div class="field-label"><label for="rank-by">Rank methods by</label><button class="help" aria-label="About ranking" data-tip="Coverage test, then interval score: methods whose coverage is not clearly below the target come first, and the lowest interval score wins, so extra width beyond the target counts against a method. Interval score: width plus a charge for how far misses land. Closest rolling coverage: nearest to the target over the rolling window.">?</button></div>
+                <div class="field-label"><label for="rank-by">Rank methods by</label><button class="help" aria-label="About ranking" data-tip="Coverage test, then interval score: methods whose coverage is not clearly below the target come first, and the lowest interval score wins, so extra width beyond the target counts against a method. Interval score: width plus a charge for how far misses land. CWC: the width each method actually issued, made exponentially more expensive for every point its coverage falls under the target. Closest rolling coverage: nearest to the target over the rolling window.">?</button></div>
                 <select id="rank-by">
                   <option value="valid_then_score" selected>Coverage test, then interval score</option>
                   <option value="interval_score">Interval score</option>
+                  <option value="cwc">CWC (risk-weighted width)</option>
                   <option value="rolling_gap">Closest rolling coverage</option>
                 </select>
+              </div>
+              <div class="field">
+                <div class="field-label"><label for="cwc-eta">CWC shortfall penalty η</label><button class="help" aria-label="About CWC shortfall penalty" data-tip="How strongly the CWC column punishes coverage under the target. Each point under it multiplies the width by e^(η/100): η 25 makes it about 1.28, η 0 ignores coverage. Gaining a point back near 90–95% costs a normal band only about 3–4% more width, so η above about 4 means a miss costs more than fixing it would. Pick η by how costly a miss is where the forecasts are used.">?</button></div>
+                <input id="cwc-eta" type="number" min="0" max="200" step="1" value="25" />
+                <p class="hint-text" id="cwc-eta-hint"></p>
               </div>
               <button id="btn-backfill" class="wide" title="Recompute all past forecasts" disabled>Recompute forecasts</button>
               <p class="hint-text" id="backfill-progress" role="status"></p>
