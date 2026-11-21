@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { TIMESTRAL_LEVELS } from "../src/model/backends";
-import { EtsBackend, detectPeriod, etsMoments, fitEts, fitVariant, nelderMead } from "../src/model/ets";
+import { EtsBackend, detectPeriod, etsMoments, fitEts, fitVariant, nelderMead, seasonCandidates } from "../src/model/ets";
 
 /** Deterministic standard normal draws (mulberry32 + Box-Muller). */
 function rng(seed: number) {
@@ -30,6 +30,25 @@ describe("season detection", () => {
     const z = rng(1);
     const y = Array.from({ length: 300 }, (_, t) => 50 + 0.2 * t + 10 * Math.sin((2 * Math.PI * t) / 24) + z());
     expect(detectPeriod(y)).toBe(24);
+  });
+
+  it("Holt-Winters finds a smooth season that noise hides from the differences", () => {
+    // Per-step noise (sd 3) is larger than the season's per-step change (at most 22 * 2pi / 48),
+    // so the differences show no peak; the detrended levels still do, and AICc keeps it.
+    const z = rng(6);
+    const y = Array.from({ length: 256 }, (_, t) => 50 + 22 * Math.sin((2 * Math.PI * t) / 48) + 3 * z());
+    expect(detectPeriod(y)).toBe(0);
+    expect(seasonCandidates(y)).toContain(48);
+    expect(fitVariant(y, "hw")!.spec.m).toBe(48);
+  });
+
+  it("Holt-Winters keeps no season on a random walk, even with a spurious candidate", () => {
+    for (const seed of [2, 7, 8, 9]) {
+      const z = rng(seed);
+      let v = 0;
+      const y = Array.from({ length: 256 }, () => (v += z()));
+      expect(fitVariant(y, "hw")!.spec.m).toBe(0);
+    }
   });
 
   it("finds no season in a random walk", () => {

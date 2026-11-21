@@ -5,12 +5,14 @@
  * variance of Hyndman et al. (2008, ch. 6, "class 1"). Each forecast refits the model to the
  * context window: the smoothing parameters and the initial level and trend are chosen by
  * Nelder-Mead on the in-sample squared one-step errors; the initial seasonal states come from a
- * classical decomposition of the context. The season length is detected from the autocorrelation
- * of the differenced context, so a hand-drawn series needs no frequency.
+ * classical decomposition of the context. Candidate season lengths come from the autocorrelation
+ * of the differenced and of the detrended context, and AICc picks among them (or none), so a
+ * hand-drawn series needs no frequency.
  *
  * Variants: simple exponential smoothing ETS(A,N,N), damped trend ETS(A,Ad,N), Holt-Winters
- * ETS(A,Ad,A) and "Auto", which picks the lowest AICc among ANN, AAN, AAdN and, when a season is
- * found, ANA, AAA and AAdA (as `ets()` in R's forecast package does for additive errors).
+ * ETS(A,Ad,A) (the lowest AICc over the candidate seasons, or ETS(A,Ad,N) when no season beats
+ * it) and "Auto", which picks the lowest AICc among ANN, AAN, AAdN and, for each candidate
+ * season, ANA, AAA and AAdA (as `ets()` in R's forecast package does for additive errors).
  */
 
 import { type Backend, type ForecastRequest, type ForecastResult, TIMESTRAL_LEVELS, clipNonnegative, normInv } from "./backends";
@@ -62,14 +64,12 @@ const sigmoid = (u: number) => 1 / (1 + Math.exp(-u));
 const logit = (p: number) => Math.log(p / (1 - p));
 
 /**
- * Season length from the autocorrelation of the first differences (differencing removes trends
- * and random-walk wander, which would otherwise look like a long season). Returns the shortest
- * lag with a clear local peak after the autocorrelation first turns negative, so harmonics
- * (2m, 3m, ...) are not picked; 0 if there is none.
+ * Shortest lag with a clear autocorrelation peak in `d`, searched after the autocorrelation
+ * first turns negative (so the slow decay at short lags is not mistaken for a peak) and taken
+ * as the shortest peak within 80% of the highest (so harmonics 2m, 3m, ... are not picked);
+ * 0 if there is none.
  */
-export function detectPeriod(y: ArrayLike<number>, maxPeriod = MAX_PERIOD): number {
-  const d: number[] = [];
-  for (let t = 1; t < y.length; t++) if (Number.isFinite(y[t]) && Number.isFinite(y[t - 1])) d.push(y[t] - y[t - 1]);
+function acfPeak(d: number[], maxPeriod: number): number {
   const n = d.length;
   const maxLag = Math.min(maxPeriod, Math.floor((n + 1) / 2));
   if (maxLag < 3) return 0;
@@ -88,8 +88,6 @@ export function detectPeriod(y: ArrayLike<number>, maxPeriod = MAX_PERIOD): numb
   const threshold = Math.max(0.3, 3 / Math.sqrt(n));
   const peaks: number[] = [];
   let best = 0;
-  // Search only after the autocorrelation first turns negative, so the slow decay at short lags
-  // (smooth seasons, noise left by differencing) is not mistaken for a peak.
   let start = 1;
   while (start <= maxLag && acf[start] >= 0) start++;
   for (let k = Math.max(2, start + 1); k <= maxLag; k++) {
@@ -99,6 +97,53 @@ export function detectPeriod(y: ArrayLike<number>, maxPeriod = MAX_PERIOD): numb
     }
   }
   return peaks.find((k) => acf[k] >= 0.8 * best) ?? 0;
+}
+
+/**
+ * Season length from the autocorrelation of the first differences. Differencing removes trends
+ * and random-walk wander, which would otherwise look like a long season, but it also amplifies
+ * noise: a smooth season with noise of a similar size per step can disappear (see
+ * `seasonCandidates`). 0 if there is none.
+ */
+export function detectPeriod(y: ArrayLike<number>, maxPeriod = MAX_PERIOD): number {
+  const d: number[] = [];
+  for (let t = 1; t < y.length; t++) if (Number.isFinite(y[t]) && Number.isFinite(y[t - 1])) d.push(y[t] - y[t - 1]);
+  return acfPeak(d, maxPeriod);
+}
+
+/**
+ * Season length from the autocorrelation of the levels after removing a least-squares line.
+ * This keeps smooth seasons that differencing drowns in noise, but wander can produce
+ * spurious peaks, so its answer is only a candidate for model selection. 0 if there is none.
+ */
+export function detectPeriodLevels(y: ArrayLike<number>, maxPeriod = MAX_PERIOD): number {
+  let n = 0, st = 0, sy = 0, stt = 0, sty = 0;
+  for (let t = 0; t < y.length; t++) {
+    if (!Number.isFinite(y[t])) continue;
+    n++;
+    st += t;
+    sy += y[t];
+    stt += t * t;
+    sty += t * y[t];
+  }
+  if (n < 6) return 0;
+  const den = n * stt - st * st;
+  const b = den > 0 ? (n * sty - st * sy) / den : 0;
+  const a = (sy - b * st) / n;
+  const d: number[] = [];
+  for (let t = 0; t < y.length; t++) if (Number.isFinite(y[t])) d.push(y[t] - a - b * t);
+  return acfPeak(d, maxPeriod);
+}
+
+/**
+ * Candidate season lengths: from the differences and from the detrended levels (distinct,
+ * non-zero). Which one, if any, is used is left to AICc, as in seasonal-period selection by
+ * information criterion, so a spurious candidate costs a fit but not a worse forecast.
+ */
+export function seasonCandidates(y: ArrayLike<number>, maxPeriod = MAX_PERIOD): number[] {
+  const out: number[] = [];
+  for (const m of [detectPeriod(y, maxPeriod), detectPeriodLevels(y, maxPeriod)]) if (m > 1 && !out.includes(m)) out.push(m);
+  return out;
 }
 
 interface Params {
@@ -311,36 +356,35 @@ export function fitEts(y: number[], spec: EtsSpec): EtsFit | null {
   };
 }
 
-/** Candidate models for a variant; seasonal ones only when a season length was found. */
-export function candidates(variant: EtsVariant, m: number): EtsSpec[] {
+/** Candidate models for a variant, given the candidate season lengths (may be empty). */
+export function candidates(variant: EtsVariant, periods: number[]): EtsSpec[] {
   switch (variant) {
     case "ses":
       return [{ trend: "N", m: 0 }];
     case "damped":
       return [{ trend: "Ad", m: 0 }];
     case "hw":
-      // Without a detectable season, Holt-Winters reduces to the damped trend model.
-      return m ? [{ trend: "Ad", m }, { trend: "Ad", m: 0 }] : [{ trend: "Ad", m: 0 }];
+      // Without a season that pays for itself, Holt-Winters reduces to the damped trend model.
+      return [...periods.map((m): EtsSpec => ({ trend: "Ad", m })), { trend: "Ad", m: 0 }];
     case "auto": {
       const specs: EtsSpec[] = [{ trend: "N", m: 0 }, { trend: "A", m: 0 }, { trend: "Ad", m: 0 }];
-      if (m) specs.push({ trend: "N", m }, { trend: "A", m }, { trend: "Ad", m });
+      for (const m of periods) specs.push({ trend: "N", m }, { trend: "A", m }, { trend: "Ad", m });
       return specs;
     }
   }
 }
 
 /**
- * Fit the variant to `y`. Forced variants take the first candidate that can be fitted (a short
- * context falls back to simpler models); "auto" takes the lowest AICc.
+ * Fit the variant to `y`: the lowest AICc among its candidates that can be fitted (a short
+ * context falls back to simpler models). For Holt-Winters and "auto" this also chooses the
+ * season length, or none.
  */
 export function fitVariant(y: number[], variant: EtsVariant): EtsFit | null {
-  const m = variant === "hw" || variant === "auto" ? detectPeriod(y) : 0;
+  const periods = variant === "hw" || variant === "auto" ? seasonCandidates(y) : [];
   let best: EtsFit | null = null;
-  for (const spec of candidates(variant, m)) {
+  for (const spec of candidates(variant, periods)) {
     const fit = fitEts(y, spec);
-    if (!fit) continue;
-    if (variant !== "auto") return fit;
-    if (!best || fit.aicc < best.aicc) best = fit;
+    if (fit && (!best || fit.aicc < best.aicc)) best = fit;
   }
   if (best || variant === "ses") return best;
   return fitEts(y, { trend: "N", m: 0 });

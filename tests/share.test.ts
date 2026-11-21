@@ -81,9 +81,9 @@ describe("scenario links", () => {
   });
 
   it("open links that name a retired ranking with the default", async () => {
-    for (const old of ["validity_then_width", "penalized"]) {
+    for (const old of ["validity_then_width", "penalized", "valid_then_shape"]) {
       const s = scenario({ rankBy: old as never });
-      expect((await decodeScenario(await encodeScenario(s), defaultSettings())).rankBy).toBe("valid_then_shape");
+      expect((await decodeScenario(await encodeScenario(s), defaultSettings())).rankBy).toBe("valid_then_score");
     }
   });
 

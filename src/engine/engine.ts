@@ -845,8 +845,8 @@ function rolling(m: MethodMetrics): { coverage: number; width: number } {
   return { coverage: m.roll.cov / m.roll.n, width: m.roll.width / m.roll.n };
 }
 
-export type RankBy = "valid_then_shape" | "interval_score" | "rolling_gap";
-export const RANK_BY: RankBy[] = ["valid_then_shape", "interval_score", "rolling_gap"];
+export type RankBy = "valid_then_score" | "interval_score" | "rolling_gap";
+export const RANK_BY: RankBy[] = ["valid_then_score", "interval_score", "rolling_gap"];
 
 export interface RankedRow extends MetricsRow {
   rank: number;
@@ -863,8 +863,12 @@ export interface RankedRow extends MetricsRow {
 /**
  * Rank methods (including the native interval) by the chosen criterion.
  *
- * `valid_then_shape` puts every row that is not significantly under the target first, ordered
- * by shape score, and the rows that are under it last, ordered by how far they fall short.
+ * `valid_then_score` puts every row that is not significantly under the target first, ordered
+ * by interval (Winkler) score, and the rows that are under it last, ordered by how far they fall
+ * short. The interval score charges a row for all the width it issued, so a row that covers more
+ * than the target pays for its extra width. The shape score and level cost, which take that
+ * width away in hindsight, are diagnostics only: ranking by shape alone put an over-wide band
+ * first whenever its errors were well placed.
  */
 export function rankRows(rows: MetricsRow[], alpha: number, by: RankBy, unc?: Map<string, Uncertainty>): RankedRow[] {
   const target = 1 - alpha;
@@ -879,8 +883,8 @@ export function rankRows(rows: MetricsRow[], alpha: number, by: RankBy, unc?: Ma
         return [r.intervalScore];
       case "rolling_gap":
         return [Math.abs(r.rollingCoverage - target), r.rollingWidth];
-      case "valid_then_shape":
-        return r.under ? [1, target - r.coverage] : [0, r.shapeScore];
+      case "valid_then_score":
+        return r.under ? [1, target - r.coverage] : [0, r.intervalScore];
     }
   };
   const sorted = [...ext].sort((a, b) => {
@@ -896,7 +900,7 @@ export function rankRows(rows: MetricsRow[], alpha: number, by: RankBy, unc?: Ma
   // group share its rank (95% paired block-bootstrap interval contains 0). Rows that are
   // significantly under the target are ordered by their shortfall and never tie.
   if (unc && by !== "rolling_gap") {
-    const samples = (id: string) => (by === "valid_then_shape" ? unc.get(id)?.shapeSamples : unc.get(id)?.scoreSamples);
+    const samples = (id: string) => unc.get(id)?.scoreSamples;
     let head = sorted[0];
     for (let i = 1; i < sorted.length; i++) {
       const r = sorted[i];
