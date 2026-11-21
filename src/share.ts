@@ -8,7 +8,7 @@
  * so links work on GitHub Pages and stay private to whoever holds them.
  */
 
-import { NATIVE_ID, RANK_BY, type RankBy, type ScoreType, type Settings } from "./engine/engine";
+import { NATIVE_ID, RANK_BY, type RankBy, type ScoreType, type Settings, CWC_ETA, CWC_ETA_MAX } from "./engine/engine";
 import { type EtsVariant, isEtsVariant } from "./model/ets";
 
 export type Align = "full" | "calibrate" | "cut";
@@ -31,6 +31,8 @@ export interface Scenario {
   leadsBefore: number | null;
   settings: Settings;
   rankBy: RankBy;
+  /** Shortfall penalty of the coverage-width criterion. */
+  cwcEta: number;
   rankLead: number;
   focus: string;
   /** Intervals drawn on the chart, the focused one last. */
@@ -132,6 +134,8 @@ interface Wire {
   /** Parameters of the enabled methods. */
   p: Record<string, Record<string, number>>;
   rb: RankBy;
+  /** CWC shortfall penalty; absent in older links (default). */
+  eta?: number;
   rl: number;
   f: string;
   /** Intervals on the chart, focused last; absent in older links (native and focus only). */
@@ -158,6 +162,7 @@ export async function encodeScenario(s: Scenario): Promise<string> {
     on,
     p: Object.fromEntries(on.filter((id) => s.settings.params[id] && Object.keys(s.settings.params[id]).length).map((id) => [id, s.settings.params[id]])),
     rb: s.rankBy,
+    ...(s.cwcEta !== CWC_ETA ? { eta: s.cwcEta } : {}),
     rl: s.rankLead,
     f: s.focus,
     sh: s.shown,
@@ -255,6 +260,7 @@ export async function decodeScenario(code: string, defaults: Settings): Promise<
     // before the default ranked by interval score instead of shape score, carry rankings that no
     // longer exist; they open with the default.
     rankBy: RANK_BY.includes(w.rb as RankBy) ? (w.rb as RankBy) : LEGACY_RANK_BY.includes(String(w.rb)) ? "valid_then_score" : "interval_score",
+    cwcEta: typeof w.eta === "number" && Number.isFinite(w.eta) ? Math.min(CWC_ETA_MAX, Math.max(0, w.eta)) : CWC_ETA,
     rankLead: intIn(w.rl, 0, settings.evalLeads, 0),
     focus,
     shown,

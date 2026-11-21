@@ -15,6 +15,7 @@ function scenario(over: Partial<Scenario> = {}): Scenario {
     leadsBefore: null,
     settings: defaultSettings(),
     rankBy: "interval_score",
+    cwcEta: 25,
     rankLead: 0,
     focus: "aci",
     shown: ["native", "aci"],
@@ -74,6 +75,9 @@ describe("scenario links", () => {
   });
 
   it("keep every ranking criterion", async () => {
+    for (const cwcEta of [25, 0, 60]) {
+      expect((await decodeScenario(await encodeScenario(scenario({ cwcEta })), defaultSettings())).cwcEta).toBe(cwcEta);
+    }
     for (const rankBy of RANK_BY) {
       const s = scenario({ rankBy });
       expect((await decodeScenario(await encodeScenario(s), defaultSettings())).rankBy).toBe(rankBy);

@@ -26,6 +26,8 @@ export interface Uncertainty {
   /** Resampled mean interval scores, one per replicate (paired across methods). */
   scoreSamples: Float64Array;
   coverageSamples: Float64Array;
+  /** Resampled mean widths, paired like `scoreSamples`. */
+  widthSamples?: Float64Array;
   /** Shape score, when the series carries one; its replicates are paired like `scoreSamples`. */
   shapeScore?: [number, number];
   shapeSamples?: Float64Array;
@@ -153,6 +155,7 @@ export function blockBootstrap(
       intervalScore: [percentile(ss, 0.025), percentile(ss, 0.975)],
       scoreSamples: sc,
       coverageSamples: cv,
+      widthSamples: wd,
     };
     if (sh) {
       u.shapeSamples = sh;
