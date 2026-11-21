@@ -110,15 +110,23 @@ describe("engine", () => {
     expect([...a.forecasts.keys()].every((o) => o < 120)).toBe(true);
   });
 
-  it("ranks by interval score, or by shape score among rows that pass the coverage test", () => {
-    const rows = [row("a", 0.9, 2, 3, 2.9), row("b", 0.7, 1, 5, 2), row("c", 0.95, 4, 4, 2.5)];
-    expect(rankRows(rows, 0.1, "interval_score").map((r) => r.id)).toEqual(["a", "c", "b"]);
+  it("ranks by interval score, after the coverage test when asked", () => {
+    const rows = [row("a", 0.9, 2, 3, 2.9), row("b", 0.7, 1, 2.5, 2), row("c", 0.95, 4, 4, 2.5)];
+    expect(rankRows(rows, 0.1, "interval_score").map((r) => r.id)).toEqual(["b", "a", "c"]);
     // Without bootstrap intervals nothing can be called significantly under target.
-    expect(rankRows(rows, 0.1, "valid_then_shape").map((r) => r.id)).toEqual(["b", "c", "a"]);
+    expect(rankRows(rows, 0.1, "valid_then_score").map((r) => r.id)).toEqual(["b", "a", "c"]);
     const unc = coverageIntervals({ a: [0.87, 0.93], b: [0.65, 0.75], c: [0.92, 0.97] });
-    const ranked = rankRows(rows, 0.1, "valid_then_shape", unc);
-    expect(ranked.map((r) => r.id)).toEqual(["c", "a", "b"]);
+    const ranked = rankRows(rows, 0.1, "valid_then_score", unc);
+    expect(ranked.map((r) => r.id)).toEqual(["a", "c", "b"]);
     expect(ranked.map((r) => r.under)).toEqual([false, false, true]);
+  });
+
+  it("an over-wide interval pays for its extra width, whatever its shape score", () => {
+    // Covers 98% with a good shape once shrunk in hindsight, but issued much more width than
+    // the on-target row (Holt-Winters' native band at 64 steps on "Seasonal + noise").
+    const rows = [row("wide", 0.981, 130.8, 133.8, 108.6), row("ontarget", 0.954, 114.1, 120.9, 120.8)];
+    const unc = coverageIntervals({ wide: [0.974, 0.987], ontarget: [0.937, 0.968] });
+    expect(rankRows(rows, 0.05, "valid_then_score", unc).map((r) => r.id)).toEqual(["ontarget", "wide"]);
   });
 
   it("the coverage test is about significance, not a fixed tolerance", () => {
@@ -127,13 +135,13 @@ describe("engine", () => {
     expect(rankRows(rows, 0.1, "interval_score").map((r) => r.id)).toEqual(["narrow", "calibrated"]);
     // On a long series 86.3% is significantly under 90%, and the narrow interval ranks last.
     const long = coverageIntervals({ narrow: [0.845, 0.88], calibrated: [0.88, 0.914] });
-    expect(rankRows(rows, 0.1, "valid_then_shape", long).map((r) => r.id)).toEqual(["calibrated", "narrow"]);
-    // On a short one the same 86.3% is within noise of the target, and the better shape wins.
+    expect(rankRows(rows, 0.1, "valid_then_score", long).map((r) => r.id)).toEqual(["calibrated", "narrow"]);
+    // On a short one the same 86.3% is within noise of the target, and the better score wins.
     const short = coverageIntervals({ narrow: [0.8, 0.92], calibrated: [0.84, 0.95] });
-    expect(rankRows(rows, 0.1, "valid_then_shape", short).map((r) => r.id)).toEqual(["narrow", "calibrated"]);
-    // Rows that fail the test are ordered by their shortfall, whatever their shape score.
+    expect(rankRows(rows, 0.1, "valid_then_score", short).map((r) => r.id)).toEqual(["narrow", "calibrated"]);
+    // Rows that fail the test are ordered by their shortfall, whatever their score.
     const both = coverageIntervals({ narrow: [0.845, 0.88], calibrated: [0.88, 0.899] });
-    expect(rankRows(rows, 0.1, "valid_then_shape", both).map((r) => r.id)).toEqual(["calibrated", "narrow"]);
+    expect(rankRows(rows, 0.1, "valid_then_score", both).map((r) => r.id)).toEqual(["calibrated", "narrow"]);
   });
 
   /** Ten unit-width intervals; values land 0.5 above two of them (80% coverage). */
@@ -223,7 +231,7 @@ describe("engine", () => {
       expect(n.worstWindow!.low).toBeLessThanOrEqual(n.worstWindow!.typical);
       expect(n.worstWindow!.typical).toBeLessThanOrEqual(0.9);
     }
-    expect(rankRows(e.table(), 0.1, "valid_then_shape", e.uncertainty())[0].rank).toBe(1);
+    expect(rankRows(e.table(), 0.1, "valid_then_score", e.uncertainty())[0].rank).toBe(1);
   });
 
   it("the worst-window reference matches what independent misses at the target show", () => {

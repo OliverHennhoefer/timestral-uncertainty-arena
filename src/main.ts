@@ -60,7 +60,7 @@ let yAuto = yMode as Exclude<YMode, "manual">;
 let maxContext = 256;
 let symmetric = true;
 let clip = true;
-let rankBy: RankBy = "valid_then_shape";
+let rankBy: RankBy = "valid_then_score";
 /** 0 = pooled over all scored leads, else a single lead. */
 let rankLead = 0;
 let uncCache: { key: string; at: number; len: number; value: Map<string, Uncertainty> } | null = null;
@@ -1027,7 +1027,7 @@ function renderTable() {
   $("rank-table").classList.toggle("hidden", !hasData);
   const tpct = (v: number) => `${+(v * 100).toFixed(1)}%`;
   const criteria: Record<RankBy, string> = {
-    valid_then_shape: "Coverage test, then shape score",
+    valid_then_score: "Coverage test, then interval score",
     interval_score: "Interval score",
     rolling_gap: "Rolling coverage",
   };
@@ -1048,13 +1048,13 @@ function renderTable() {
   // Extra columns (class "x") give way on narrow tables, except the one the ranking uses.
   const R = engine.settings.rolling;
   const cols: { label: string; tip: string; extra?: true; by?: RankBy[] }[] = [
-    { label: "Coverage", tip: `Share of values that fell inside the interval. The target is ${tpct(target)}. ▾ marks coverage that is clearly below the target, by more than noise explains.`, by: ["valid_then_shape"] },
+    { label: "Coverage", tip: `Share of values that fell inside the interval. The target is ${tpct(target)}. ▾ marks coverage that is clearly below the target, by more than noise explains.`, by: ["valid_then_score"] },
     { label: "Worst window", extra: true, tip: `Lowest coverage over any ${R}-step stretch. The small grey number is what a method that truly covers ${tpct(target)} would typically show here, given how this method's misses cluster. ▾ marks a stretch worse than such a method would show 19 times out of 20.` },
     { label: "Width", tip: "Average width of the intervals the method issued, at whatever coverage it reached." },
     { label: `Width at ${tpct(target)}`, extra: true, tip: `Average width after stretching or shrinking the intervals, in hindsight, until they cover exactly ${tpct(target)}. Compares methods at equal coverage. Each step ahead gets its own adjustment.` },
-    { label: "Interval score", tip: `Width plus a penalty for every miss: ${+(2 / alpha).toFixed(2)}× how far the value landed outside. Lower is better. A miss is charged by its distance, not by how often misses happen, so a too-narrow interval can still score well.`, by: ["interval_score"] },
-    { label: "Shape score", tip: "The interval score after a free fix: all intervals are stretched or shrunk by the same amount, in hindsight, until the score is as low as it can get. It shows how good the intervals are once their overall width is right. Lower is better. Each step ahead gets its own amount.", by: ["valid_then_shape"] },
-    { label: "Level cost", extra: true, tip: "How much that free fix helped, as a share of the interval score. 0% means the overall width was already right. A large value means the intervals were too narrow or too wide overall." },
+    { label: "Interval score", tip: `Width plus a penalty for every miss: ${+(2 / alpha).toFixed(2)}× how far the value landed outside. Lower is better. A miss is charged by its distance, not by how often misses happen, so a too-narrow interval can still score well.`, by: ["interval_score", "valid_then_score"] },
+    { label: "Shape score", extra: true, tip: "Diagnostic, not used for ranking. The interval score after a free fix: all intervals are stretched or shrunk by the same amount, in hindsight, until the score is as low as it can get. It shows how good the intervals are once their overall width is right. Lower is better. Each step ahead gets its own amount." },
+    { label: "Level cost", extra: true, tip: "Diagnostic, not used for ranking. How much that free fix helped, as a share of the interval score. 0% means the overall width was already right. A large value means the intervals were too narrow or too wide overall." },
   ];
   const cls = (i: number, more: string[] = []) => {
     const by = !!cols[i].by?.includes(rankBy);
